@@ -1,0 +1,6 @@
+{
+  "version": "1.1.0",
+  "notes": "Interactive form filling (AcroForm), true redaction with verified content removal, watermarks, headers/footers with page and Bates numbering, real password protection (open + save), and a fix for text selection/click-to-edit positioning.",
+  "latestInstaller": "PDF Forge Setup 1.1.0.exe",
+  "sha256": "f05f5df3c059afcf4ae118855f5619c21e4039c2254a1c0723521c1f256a525f"
+}

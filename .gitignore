@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-main/
+dist-renderer/
+*.exe
+*.msi
+.DS_Store
+thumbs.db
+.smoketest/

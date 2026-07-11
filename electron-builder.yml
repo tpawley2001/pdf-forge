@@ -1,0 +1,35 @@
+appId: com.pdfforge.pdfeditor
+productName: PDF Forge
+copyright: Copyright 2024 PDF Forge — MIT License
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - "!node_modules/**/*"
+  - "src/main/**/*"
+  - "dist-renderer/**/*"
+  - "package.json"
+
+extraMetadata:
+  main: src/main/main.js
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: PDF Forge
+
+asar: true
+asarUnpack:
+  - "dist-renderer/ocr/**"
+compression: maximum
