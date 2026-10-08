@@ -257,6 +257,7 @@ class Transplant {
     this.src = src;
     this.dest = dest;
     this.indices = indices;
+    this.whole = seen.size === count;
     this.copier = new Copier(src, dest);
     this.srcPages = src.getPages();
     this.newPages = [];
@@ -561,6 +562,7 @@ class Transplant {
         if (dest || action || children.length) {
           const count = ctx.lookup(node.get(N('Count')));
           items.push({
+            reaches: !!dest || children.some(c => c.reaches),
             title: textOf(ctx.lookup(node.get(N('Title')))) || '',
             color: node.has(N('C')) ? copier.copy(node.get(N('C'))) : undefined,
             flags: node.has(N('F')) ? copier.copy(node.get(N('F'))) : undefined,
@@ -570,6 +572,11 @@ class Transplant {
         }
         ref = node.get(N('Next'));
       }
+      // Web links and other actions only make sense next to bookmarks that
+      // still lead into the pages taken; on their own they'd keep an empty
+      // group (e.g. another file's bookmark in a split part) alive. When the
+      // whole document is taken, everything stays.
+      if (!this.whole && !items.some(it => it.reaches)) return [];
       return items;
     };
     return walk(root.get(N('First')), 0);

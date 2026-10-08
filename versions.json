@@ -1,6 +1,6 @@
 {
-  "version": "1.4.0",
-  "notes": "Combine, extract, split and insert pages without losing links, bookmarks, form fields, layers or attachments; new Split (every N pages or before selected pages); deleting pages cleans up links and bookmarks that pointed at them. Safer saving: atomic writes, Save / Don't Save / Cancel prompt before unsaved changes are lost, autosave every minute with crash recovery.",
-  "latestInstaller": "PDF Forge Setup 1.4.0.exe",
-  "sha256": "7871023962bd1867b3d9d6fbf9f383b98fb76fbef2c6d422823c4e82bc2771fe"
+  "version": "1.4.1",
+  "notes": "Combine, extract, split and insert pages without losing links, bookmarks, form fields, layers or attachments; new Split (every N pages or before selected pages); deleting pages cleans up links and bookmarks that pointed at them. Safer saving: atomic writes, Save / Don't Save / Cancel prompt before unsaved changes are lost, autosave every minute with crash recovery. 1.4.1: a split or extracted part no longer gets an empty bookmark group from a file whose pages it doesn't contain.",
+  "latestInstaller": "PDF Forge Setup 1.4.1.exe",
+  "sha256": "6f84193ed40859988b6dcaeede71241a6fef398d57e25de61bc37a220328ad81"
 }
