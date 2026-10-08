@@ -31,6 +31,7 @@ export default function PDFViewer({
   onFirstPageSize,
   formValues, onFormValueChange,
   onPasswordRequired,
+  onLoadError,
 }) {
   const containerRef   = useRef(null);
   const textLayerRefs  = useRef({});
@@ -66,6 +67,7 @@ export default function PDFViewer({
         onPasswordRequired?.();
       } else {
         console.error('PDF load error:', err);
+        onLoadError?.(err);
       }
     });
     return () => task.destroy().catch(() => {});

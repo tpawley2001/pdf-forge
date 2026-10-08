@@ -12,6 +12,7 @@ Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Elec
 - **Watermark & headers/footers** — diagonal/horizontal text watermarks; headers and footers with `{page}`, `{pages}`, `{date}`, and `{bates}` numbering tokens
 - **Digital signatures** — sign with a certificate (.pfx/.p12 Digital ID) like Acrobat's "Use a certificate": visible (drag to place) or invisible, reason/location, optional RFC 3161 trusted timestamp and LTV; create a self-signed Digital ID in-app. Opening a signed PDF verifies every signature (integrity, signer, time, timestamp, later changes, chain to a trusted root) and shows a status bar plus a Signature Panel
 - **Protect** — real password encryption (open password + permissions), and open/unlock password-protected files
+- **Repair & optimize** — Repair PDF rebuilds damaged files (PDFium recovery + qpdf rewrite; offered automatically when a file won't open), Reduce File Size (qpdf object streams + recompression), and Optimize for Fast Web View (qpdf linearization)
 - **Organize pages** — reorder, rotate, delete, extract, duplicate, insert from another PDF; merge PDFs; export pages as images
 - **Create PDF from images** — combine JPEG/PNG pictures into a PDF with reordering, page size (fit/A4/Letter/Legal), orientation, and margins
 - **Document properties** — edit title, author, and metadata

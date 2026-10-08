@@ -19,6 +19,8 @@ import ProtectDialog from './components/ProtectDialog';
 import PasswordPromptDialog from './components/PasswordPromptDialog';
 import RedactDialog from './components/RedactDialog';
 import DigitalSignDialog from './components/DigitalSignDialog';
+import PdfToolResultDialog from './components/PdfToolResultDialog';
+import { withPdfiumDoc } from '../pdf/PdfiumEngine.js';
 import { SignatureBanner, SignaturePanelDialog } from './components/SignaturePanel';
 import { useAnnotations } from './hooks/useAnnotations';
 import { TextEditor } from '../pdf/TextEditor.js';
@@ -71,6 +73,7 @@ export default function App() {
   const [signDialog,             setSignDialog]             = useState(null); // { initial?, error? } while open
   const [pendingSign,            setPendingSign]            = useState(null); // settings waiting for a placed box
   const [showSigPanel,           setShowSigPanel]           = useState(false);
+  const [pdfToolState,           setPdfToolState]           = useState(null); // Repair / optimize dialog
   const [passwordPrompt,         setPasswordPrompt]         = useState(null); // { error, busy }
   const [redactDialog,           setRedactDialog]           = useState(null); // { busy, result }
   const [pendingStampType,       setPendingStampType]       = useState('Approved');
@@ -314,6 +317,43 @@ export default function App() {
   const handleFormValueChange = useCallback((name, value) => {
     setFormValues(prev => ({ ...prev, [name]: value }));
     setIsModified(true);
+  }, []);
+
+  // ── Repair / Reduce File Size / Fast Web View (PDFium + qpdf) ──
+  const TOOL_TITLES = { repair: 'Repair PDF', optimize: 'Reduce File Size', linearize: 'Optimize for Fast Web View' };
+  const fmtKB = n => `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;
+  const handlePdfTool = useCallback(async (op) => {
+    if (!pdfData) return;
+    const title = TOOL_TITLES[op];
+    if (signatures?.length && !window.confirm(`${title} rewrites the file, which invalidates its digital signatures. Continue?`)) return;
+    setPdfToolState({ title, busy: true });
+    try {
+      let input = pdfData;
+      // qpdf-wasm can't reconstruct damaged files; PDFium can — load + resave first
+      if (op === 'repair') input = await withPdfiumDoc(pdfData, d => d.save());
+      const r = await window.electronAPI.pdfTransform(op === 'repair' ? 'rewrite' : op, toBase64(input));
+      if (!r?.success) { setPdfToolState({ title, error: r?.error || 'Failed' }); return; }
+      setPdfData(fromBase64(r.data));
+      setIsModified(true);
+      setThumbnails({}); setPageTexts({}); setPageImages({}); setPageImageScales({}); setPageOCRData({});
+      const sizes = `${fmtKB(r.before)} → ${fmtKB(r.after)}`;
+      const message = op === 'repair'
+        ? `The document structure was rebuilt (${sizes}). Save to keep the repaired file.`
+        : op === 'optimize'
+        ? `${sizes} (${Math.round((1 - r.after / r.before) * 100)}% smaller). Save to keep it.`
+        : `The file is now linearized so web browsers can show page 1 before it finishes downloading (${sizes}). Save to keep it — it stays linearized as long as there are no further edits.`;
+      setPdfToolState({ title, message: r.warnings?.length ? `${message}\n\nqpdf notes:\n${r.warnings.slice(0, 5).join('\n')}` : message });
+    } catch (err) {
+      setPdfToolState({ title, error: err.message });
+    }
+  }, [pdfData, signatures]);
+
+  const handleLoadError = useCallback((err) => {
+    setPdfToolState({
+      title: 'Couldn\'t open this PDF',
+      message: `The file looks damaged (${err?.message || 'unreadable'}). PDF Forge can try to rebuild it.`,
+      offerRepair: true,
+    });
   }, []);
 
   const handleFlattenForm = useCallback(async () => {
@@ -668,9 +708,12 @@ export default function App() {
     on('menu:headerFooter', () => setShowHeaderFooter(true));
     on('menu:protect', () => setShowProtect(true));
     on('menu:digitalSign', () => setSignDialog({}));
+    on('menu:repair', () => handlePdfTool('repair'));
+    on('menu:optimize', () => handlePdfTool('optimize'));
+    on('menu:linearize', () => handlePdfTool('linearize'));
     on('menu:flattenForm', handleFlattenForm);
     return () => offs.forEach(c => { try { c(); } catch (_) {} });
-  }, [handleSave, handleSaveAs, handleNewFile, ann, handleRotateCW, handleRotateCCW, handleFlattenForm]);
+  }, [handleSave, handleSaveAs, handleNewFile, ann, handleRotateCW, handleRotateCCW, handleFlattenForm, handlePdfTool]);
 
   const handleToolChange = useCallback(t => {
     if (t === 'signature') { setShowSignature(true); return; }
@@ -709,6 +752,7 @@ export default function App() {
         onHeaderFooter={() => setShowHeaderFooter(true)}
         onProtect={() => setShowProtect(true)}
         onDigitalSign={() => setSignDialog({})}
+        onPdfTool={handlePdfTool}
         onFlattenForm={handleFlattenForm}
         redactCount={redactAnnotations.length}
         onApplyRedactions={handleApplyRedactionsClick}
@@ -762,6 +806,7 @@ export default function App() {
             formValues={formValues}
             onFormValueChange={handleFormValueChange}
             onPasswordRequired={handlePasswordRequired}
+            onLoadError={handleLoadError}
           />
           </div>
         ) : (
@@ -851,6 +896,13 @@ export default function App() {
           error={signDialog.error}
           onSign={handleSignSettings}
           onClose={() => setSignDialog(null)}
+        />
+      )}
+      {pdfToolState && (
+        <PdfToolResultDialog
+          state={pdfToolState}
+          onRepair={() => handlePdfTool('repair')}
+          onClose={() => setPdfToolState(null)}
         />
       )}
       {showSigPanel && signatures && (

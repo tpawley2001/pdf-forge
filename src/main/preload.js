@@ -12,7 +12,7 @@ const ALLOWED_CHANNELS = [
   'menu:toolArrow', 'menu:toolText',
   'menu:find',
   'menu:organizePages', 'menu:export', 'menu:mergePDF', 'menu:imagesToPdf', 'menu:documentProperties',
-  'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm', 'menu:digitalSign',
+  'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm', 'menu:digitalSign', 'menu:repair', 'menu:optimize', 'menu:linearize',
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   signCreateId:      (o)      => ipcRenderer.invoke('sign:createId', o),
   signAndSave:       (o)      => ipcRenderer.invoke('sign:signAndSave', o),
   verifySignatures:  (b64)    => ipcRenderer.invoke('sign:verify', b64),
+  pdfTransform:      (op, b64) => ipcRenderer.invoke('pdf:transform', op, b64),
   writeFile:         (p, d)   => ipcRenderer.invoke('file:write', p, d),
   saveNow:           (d, p)   => ipcRenderer.invoke('menu:saveNow', d, p),
   printPDF:          ()       => ipcRenderer.invoke('print:pdf'),

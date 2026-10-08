@@ -69,7 +69,7 @@ export default function Toolbar({
   annotationSize,  onSizeChange,
   onOCR, ocrRunning,
   onOrganizePages, onExport, onDocumentProperties, onMergePDF, onImagesToPdf,
-  onWatermark, onHeaderFooter, onProtect, onDigitalSign, onFlattenForm,
+  onWatermark, onHeaderFooter, onProtect, onDigitalSign, onPdfTool, onFlattenForm,
   redactCount, onApplyRedactions, isProtected,
 }) {
   const [showFileMenu, setShowFileMenu] = useState(false);
@@ -336,6 +336,16 @@ export default function Toolbar({
               </div>
               <div className="dropdown__item" onClick={() => { onDigitalSign?.(); setShowToolsMenu(false); }}>
                 <IconLock /> Sign with Digital ID…
+              </div>
+              <div className="dropdown__separator" />
+              <div className="dropdown__item" onClick={() => { onPdfTool?.('repair'); setShowToolsMenu(false); }}>
+                <IconText /> Repair PDF
+              </div>
+              <div className="dropdown__item" onClick={() => { onPdfTool?.('optimize'); setShowToolsMenu(false); }}>
+                <IconText /> Reduce File Size
+              </div>
+              <div className="dropdown__item" onClick={() => { onPdfTool?.('linearize'); setShowToolsMenu(false); }}>
+                <IconText /> Optimize for Fast Web View
               </div>
               <div className="dropdown__separator" />
               <div className="dropdown__item" onClick={() => { onFlattenForm?.(); setShowToolsMenu(false); }}>

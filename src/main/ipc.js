@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { VERSION } = require('./version');
 // Packaged builds ship without node_modules: use the webpack bundle there
 const signing = app.isPackaged ? require('../../dist-main/signing.js') : require('./signing');
+const pdfTools = app.isPackaged ? require('../../dist-main/pdfTools.js') : require('./pdfTools');
 
 const UPDATE_HOSTS = [
   'http://pdf-update.local:3000',
@@ -213,6 +214,14 @@ function registerIpcHandlers(getMainWindow) {
     } catch (err) {
       return { success: false, error: /password|mac/i.test(err.message) ? 'Incorrect password for this Digital ID.' : err.message };
     }
+  });
+
+  // ── qpdf: repair rewrite / linearize / optimize ──
+  ipcMain.handle('pdf:transform', async (_e, op, pdfB64) => {
+    try {
+      const r = await pdfTools.transform(op, Buffer.from(pdfB64, 'base64'));
+      return { success: true, data: r.bytes.toString('base64'), before: r.before, after: r.after, warnings: r.warnings };
+    } catch (err) { return { success: false, error: err.message }; }
   });
 
   ipcMain.handle('sign:verify', async (_e, pdfB64) => {

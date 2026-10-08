@@ -222,6 +222,19 @@ function setupMenu(getMainWindow) {
           label: 'Sign with Digital ID…',
           click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:digitalSign'); },
         },
+        { type: 'separator' },
+        {
+          label: 'Repair PDF',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:repair'); },
+        },
+        {
+          label: 'Reduce File Size',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:optimize'); },
+        },
+        {
+          label: 'Optimize for Fast Web View',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:linearize'); },
+        },
         {
           label: 'Flatten Form Fields',
           click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:flattenForm'); },
