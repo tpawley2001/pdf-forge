@@ -195,6 +195,10 @@ function setupMenu(getMainWindow) {
           label: 'Merge PDFs…',
           click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:mergePDF'); },
         },
+        {
+          label: 'Create PDF from Images…',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:imagesToPdf'); },
+        },
         { type: 'separator' },
         {
           label: 'Add Watermark…',

@@ -177,6 +177,32 @@ function registerIpcHandlers(getMainWindow) {
     return { canceled: false, files };
   });
 
+  // ── Open image files (for Images to PDF) ──
+  ipcMain.handle('dialog:openImageFiles', async () => {
+    const win = getMainWindow();
+    if (!win) return { canceled: true };
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Select Images',
+      filters: [
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    const files = [];
+    for (const fp of result.filePaths) {
+      try {
+        const buf = await fs.promises.readFile(fp);
+        allowedPaths.add(path.resolve(fp));
+        files.push({ filePath: fp, fileName: path.basename(fp), data: buf.toString('base64') });
+      } catch (err) {
+        console.error(`Failed to read ${fp}:`, err.message);
+      }
+    }
+    return { canceled: false, files };
+  });
+
   // ── App info ──
   ipcMain.handle('app:info', async () => ({ version: VERSION, name: 'PDF Forge', platform: process.platform }));
 }

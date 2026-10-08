@@ -68,7 +68,7 @@ export default function Toolbar({
   annotationColor, onColorChange,
   annotationSize,  onSizeChange,
   onOCR, ocrRunning,
-  onOrganizePages, onExport, onDocumentProperties, onMergePDF,
+  onOrganizePages, onExport, onDocumentProperties, onMergePDF, onImagesToPdf,
   onWatermark, onHeaderFooter, onProtect, onFlattenForm,
   redactCount, onApplyRedactions, isProtected,
 }) {
@@ -285,6 +285,19 @@ export default function Toolbar({
               <rect x="3" y="12" width="10" height="2" rx="1" />
             </svg>
             <span>Merge</span>
+          </button>
+          <button
+            className="tb-btn tb-btn--labeled"
+            onClick={onImagesToPdf}
+            data-tooltip="Images to PDF — build a PDF from JPEG/PNG pictures"
+            aria-label="Images to PDF"
+          >
+            <svg viewBox="0 0 16 16" style={{ width: 14, height: 14, fill: 'currentColor' }}>
+              <rect x="1.5" y="2.5" width="13" height="10" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="5.2" cy="6" r="1.2" />
+              <path d="M3 11l3.2-3.4 2.4 2.4 2-2.2 2.4 3.2z" />
+            </svg>
+            <span>Images</span>
           </button>
           <button
             className="tb-btn"

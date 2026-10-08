@@ -11,6 +11,7 @@ import ExportDialog from './components/ExportDialog';
 import UpdateDialog from './components/UpdateDialog';
 import DocumentPropertiesDialog from './components/DocumentPropertiesDialog';
 import MergePDFDialog from './components/MergePDFDialog';
+import ImagesToPdfDialog from './components/ImagesToPdfDialog';
 import StampPickerDialog from './components/StampPickerDialog';
 import WatermarkDialog from './components/WatermarkDialog';
 import HeaderFooterDialog from './components/HeaderFooterDialog';
@@ -56,6 +57,7 @@ export default function App() {
   const [showUpdate,             setShowUpdate]             = useState(false);
   const [showDocumentProperties, setShowDocumentProperties] = useState(false);
   const [showMergePDF,           setShowMergePDF]           = useState(false);
+  const [showImagesToPdf,        setShowImagesToPdf]        = useState(false);
   const [showStampPicker,        setShowStampPicker]        = useState(false);
   const [showWatermark,          setShowWatermark]          = useState(false);
   const [showHeaderFooter,       setShowHeaderFooter]       = useState(false);
@@ -535,6 +537,7 @@ export default function App() {
     on('menu:organizePages', () => setShowPageOrganizer(true));
     on('menu:export', () => setShowExport(true));
     on('menu:mergePDF', () => setShowMergePDF(true));
+    on('menu:imagesToPdf', () => setShowImagesToPdf(true));
     on('menu:documentProperties', () => setShowDocumentProperties(true));
     on('menu:toolRedact', () => setActiveTool('redact'));
     on('menu:watermark', () => setShowWatermark(true));
@@ -576,6 +579,7 @@ export default function App() {
         onExport={() => setShowExport(true)}
         onDocumentProperties={() => setShowDocumentProperties(true)}
         onMergePDF={() => setShowMergePDF(true)}
+        onImagesToPdf={() => setShowImagesToPdf(true)}
         onWatermark={() => setShowWatermark(true)}
         onHeaderFooter={() => setShowHeaderFooter(true)}
         onProtect={() => setShowProtect(true)}
@@ -681,6 +685,12 @@ export default function App() {
         <MergePDFDialog
           onMerge={bytes => { loadB64(toBase64(bytes), null, 'merged.pdf'); setIsModified(true); }}
           onClose={() => setShowMergePDF(false)}
+        />
+      )}
+      {showImagesToPdf && (
+        <ImagesToPdfDialog
+          onCreate={bytes => { loadB64(toBase64(bytes), null, 'images.pdf'); setIsModified(true); }}
+          onClose={() => setShowImagesToPdf(false)}
         />
       )}
       {showStampPicker && (

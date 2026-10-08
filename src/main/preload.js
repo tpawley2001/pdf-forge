@@ -11,7 +11,7 @@ const ALLOWED_CHANNELS = [
   'menu:toolFreehand', 'menu:toolRectangle', 'menu:toolEllipse', 'menu:toolLine',
   'menu:toolArrow', 'menu:toolText',
   'menu:find',
-  'menu:organizePages', 'menu:export', 'menu:mergePDF', 'menu:documentProperties',
+  'menu:organizePages', 'menu:export', 'menu:mergePDF', 'menu:imagesToPdf', 'menu:documentProperties',
   'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm',
 ];
 
@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFile:          (opts)   => ipcRenderer.invoke('dialog:saveFile', opts),
   saveFileAs:        (opts)   => ipcRenderer.invoke('dialog:saveFileAs', opts),
   openMultipleFiles: ()       => ipcRenderer.invoke('dialog:openMultipleFiles'),
+  openImageFiles:    ()       => ipcRenderer.invoke('dialog:openImageFiles'),
   readFile:          (p)      => ipcRenderer.invoke('file:read', p),
   writeFile:         (p, d)   => ipcRenderer.invoke('file:write', p, d),
   saveNow:           (d, p)   => ipcRenderer.invoke('menu:saveNow', d, p),

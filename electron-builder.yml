@@ -1,6 +1,6 @@
 appId: com.pdfforge.pdfeditor
 productName: PDF Forge
-copyright: Copyright 2024 PDF Forge — MIT License
+copyright: Copyright 2024-2026 Hillyard Tech — MIT License
 
 directories:
   output: dist
