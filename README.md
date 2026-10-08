@@ -1,12 +1,12 @@
 # PDF Forge
 
-Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Electron, React, pdf.js, and pdf-lib.
+Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Electron, React, pdf.js, pdf-lib, and PDFium (via [@embedpdf/pdfium](https://github.com/embedpdf/embed-pdf-viewer), MIT).
 
 ## Features
 
 - **View & navigate** — continuous scrolling, thumbnails, bookmarks/outline, search, zoom/fit, rotate
 - **Annotate** — highlight, underline, strikethrough, freehand, shapes, arrows, text boxes, sticky notes, stamps, signatures (flattened into the PDF on save)
-- **Edit text** — click existing text to replace it, with automatic font matching; OCR-powered editing for scanned pages (Tesseract)
+- **Edit text** — Acrobat-style paragraph editing powered by PDFium: click any line to edit the whole paragraph, which reflows to its original width (left/center/right/justified) in the document's own embedded font; mixed bold/regular words keep their styles; drag the box to move it or resize it to change the wrap width. Missing glyphs switch the paragraph to the matching system font. Every edit is verified by rendering the page before and after — if anything outside the paragraph would change, it falls back to overlay editing. OCR-powered editing for scanned pages (Tesseract)
 - **Fill forms** — interactive AcroForm fields (text, checkboxes, radios, dropdowns) rendered right on the page; flatten fields when done
 - **Redact** — true redaction: marked content is *removed* from the file, verified, and pages that can't be cleanly scrubbed are flattened to an image — never just a black box over live text
 - **Watermark & headers/footers** — diagonal/horizontal text watermarks; headers and footers with `{page}`, `{pages}`, `{date}`, and `{bates}` numbering tokens

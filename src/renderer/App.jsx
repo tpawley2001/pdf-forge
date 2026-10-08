@@ -21,7 +21,8 @@ import RedactDialog from './components/RedactDialog';
 import { useAnnotations } from './hooks/useAnnotations';
 import { TextEditor } from '../pdf/TextEditor.js';
 import { createOCRWorker, parseBlocks } from './services/ocr.js';
-import { matchFontFromRegion } from './services/fontMatcher.js';
+import { matchFontFromRegion, getFontBytes } from './services/fontMatcher.js';
+import { findParagraph, replaceParagraph } from '../pdf/PdfiumTextEditor.js';
 import { flattenAnnotations } from '../pdf/AnnotationFlattener.js';
 import { applyFormValues, flattenFormFields } from '../pdf/FormFiller.js';
 import { applyRedactions } from '../pdf/Redactor.js';
@@ -432,10 +433,54 @@ export default function App() {
 
   const handleOCRCancel = useCallback(() => setOcrEditPage(null), []);
 
+  // Click on text → open the editor immediately, then widen it to the whole
+  // paragraph (with its real font/size/color) once PDFium has analysed it.
+  const handleTextEditRequest = useCallback(async (edit) => {
+    setTextEdit(edit);
+    if (!pdfData || !edit?.bbox) return;
+    const para = await findParagraph(pdfData, edit.page - 1, edit.bbox, edit.originalText);
+    if (!para) return;
+    setTextEdit(cur => (cur && cur.page === edit.page && cur.bbox === edit.bbox && cur.text === edit.text ? {
+      ...cur,
+      text: para.text,
+      originalText: para.text,
+      bbox: para.bbox,
+      fontSize: para.fontSize,
+      color: para.color,
+      bold: para.mixedBold ? null : para.bold,
+      italic: para.mixedItalic ? null : para.italic,
+      fontFamily: para.fontFamily,
+      align: para.align,
+      pdfium: para,
+    } : cur));
+  }, [pdfData]);
+
   const handleTextEditApply = useCallback(async (edit) => {
     if (!pdfData || !edit) return;
     setIsLoading(true);
     try {
+      // Native paragraph edit: original font where possible, reflow, verified
+      if (edit.pdfium) {
+        const p = edit.pdfium;
+        const res = await replaceParagraph(pdfData, edit.page - 1, p, edit.text, {
+          fontSize: edit.fontSize !== p.fontSize ? edit.fontSize : undefined,
+          color: edit.color,
+          bold: edit.bold,
+          italic: edit.italic,
+          align: edit.align !== p.align ? edit.align : undefined,
+          viewOffset: { dx: edit.bbox.x - p.bbox.x, dy: edit.bbox.y - p.bbox.y },
+          viewWidth: Math.abs(edit.bbox.width - p.bbox.width) > 0.5 ? edit.bbox.width : undefined,
+          loadFontBytes: getFontBytes,
+        });
+        if (res) {
+          setPdfData(res.bytes);
+          setIsModified(true);
+          setTextEdit(null);
+          return;
+        }
+        console.warn('PDFium paragraph edit not possible here; falling back to overlay edit');
+      }
+
       // If font info is missing (e.g. click on OCR block), run pixel-level matching
       let { fontFamily, bold, italic } = edit;
       if (!fontFamily) {
@@ -620,7 +665,7 @@ export default function App() {
             onThumbnailReady={handleThumbnailReady}
             onTextContent={handleTextContent}
             onPageImage={handlePageImage}
-            onTextEditRequest={setTextEdit}
+            onTextEditRequest={handleTextEditRequest}
             textEdit={textEdit}
             onTextEditChange={setTextEdit}
             onTextEditApply={handleTextEditApply}

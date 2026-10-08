@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+function genericFamily(name) {
+  if (/mono|courier|consol/i.test(name || '')) return 'monospace';
+  if (/sans|arial|helvetica|calibri|verdana|segoe|tahoma|gothic/i.test(name || '')) return 'sans-serif';
+  return 'serif';
+}
+
 const COLORS = ['#000000', '#e74c3c', '#3498db', '#2ecc71', '#e67e22', '#ffffff'];
 
 export default function TextReplacementOverlay({ edit, scale, onChange, onApply, onCancel }) {
@@ -68,7 +74,7 @@ export default function TextReplacementOverlay({ edit, scale, onChange, onApply,
       }}
     >
       <div className="text-edit-overlay__bar" onMouseDown={e => startMove(e, 'move')}>
-        <span>Drag to position</span>
+        <span>{edit.pdfium ? `Paragraph · ${edit.fontFamily || 'original font'}` : 'Drag to position'}</span>
         <button onClick={onCancel}>Cancel</button>
         <button className="text-edit-overlay__apply" onClick={() => onApply?.(edit)}>Apply</button>
       </div>
@@ -83,6 +89,11 @@ export default function TextReplacementOverlay({ edit, scale, onChange, onApply,
         }}
         style={{
           fontSize: `${edit.fontSize * scale}px`,
+          ...(edit.pdfium ? {
+            lineHeight: `${edit.pdfium.lineHeight * scale}px`,
+            fontFamily: `"${edit.fontFamily}", ${genericFamily(edit.fontFamily)}`,
+            minHeight: `${(edit.bbox.height + edit.pdfium.lineHeight * 0.5) * scale}px`,
+          } : {}),
           color: edit.color,
           fontWeight: edit.bold ? 700 : 400,
           fontStyle: edit.italic ? 'italic' : 'normal',
@@ -101,34 +112,39 @@ export default function TextReplacementOverlay({ edit, scale, onChange, onApply,
             onChange={e => update({ fontSize: Number(e.target.value) || 12 })}
           />
         </label>
-        <label>
-          Pad
-          <input
-            type="number"
-            min="0"
-            max="32"
-            value={edit.paddingX ?? 3}
-            onChange={e => {
-              const value = Number(e.target.value) || 0;
-              update({ paddingX: value, paddingY: Math.max(0, Math.round(value * 0.65)) });
-            }}
-          />
-        </label>
+        {!edit.pdfium && (
+          <label>
+            Pad
+            <input
+              type="number"
+              min="0"
+              max="32"
+              value={edit.paddingX ?? 3}
+              onChange={e => {
+                const value = Number(e.target.value) || 0;
+                update({ paddingX: value, paddingY: Math.max(0, Math.round(value * 0.65)) });
+              }}
+            />
+          </label>
+        )}
         <button className={edit.bold ? 'active' : ''} style={{ fontWeight: 700 }} onClick={() => update({ bold: !edit.bold })}>B</button>
         <button className={edit.italic ? 'active' : ''} style={{ fontStyle: 'italic' }} onClick={() => update({ italic: !edit.italic })}>I</button>
         <select value={edit.align || 'left'} onChange={e => update({ align: e.target.value })}>
           <option value="left">Left</option>
           <option value="center">Center</option>
           <option value="right">Right</option>
+          <option value="justify">Justify</option>
         </select>
-        <label className="text-edit-overlay__check">
-          <input
-            type="checkbox"
-            checked={edit.whiteout !== false}
-            onChange={e => update({ whiteout: e.target.checked })}
-          />
-          Whiteout
-        </label>
+        {!edit.pdfium && (
+          <label className="text-edit-overlay__check">
+            <input
+              type="checkbox"
+              checked={edit.whiteout !== false}
+              onChange={e => update({ whiteout: e.target.checked })}
+            />
+            Whiteout
+          </label>
+        )}
         <div className="text-edit-overlay__colors">
           {COLORS.map(color => (
             <button

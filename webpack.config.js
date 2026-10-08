@@ -32,6 +32,11 @@ class CopyOcrAssetsPlugin {
         path.resolve(__dirname, 'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz'),
         path.join(out, 'ocr/lang/eng.traineddata.gz'),
       );
+      // PDFium (paragraph text editing) — fetched by src/pdf/PdfiumEngine.js
+      copyFile(
+        require.resolve('@embedpdf/pdfium/pdfium.wasm'),
+        path.join(out, 'pdfium/pdfium.wasm'),
+      );
     });
   }
 }
@@ -64,6 +69,12 @@ module.exports = {
         test: /pdf\.worker(\.min)?\.js$/,
         type: 'asset/resource',
         generator: { filename: '[name][ext]' },
+      },
+      {
+        // We fetch pdfium.wasm ourselves; don't let webpack emit a second copy
+        // for the package's `new URL('pdfium.wasm', import.meta.url)` default.
+        test: /@embedpdf[\\/]pdfium[\\/]dist[\\/].*\.js$/,
+        parser: { url: false },
       },
       {
         test: /\.jsx?$/,

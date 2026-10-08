@@ -18,6 +18,12 @@ const allowedPaths = new Set();
 
 function registerIpcHandlers(getMainWindow) {
 
+  // PDFium wasm for the renderer: file:// pages can't fetch() under the CSP,
+  // so the main process reads this one fixed asset (works inside app.asar).
+  ipcMain.handle('asset:pdfiumWasm', async () => (
+    fs.promises.readFile(path.join(__dirname, '../../dist-renderer/pdfium/pdfium.wasm'))
+  ));
+
   ipcMain.handle('dialog:openFile', async () => {
     const win = getMainWindow();
     if (!win) return { canceled: true };

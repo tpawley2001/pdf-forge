@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openMultipleFiles: ()       => ipcRenderer.invoke('dialog:openMultipleFiles'),
   openImageFiles:    ()       => ipcRenderer.invoke('dialog:openImageFiles'),
   readFile:          (p)      => ipcRenderer.invoke('file:read', p),
+  loadPdfiumWasm:    ()       => ipcRenderer.invoke('asset:pdfiumWasm'),
   writeFile:         (p, d)   => ipcRenderer.invoke('file:write', p, d),
   saveNow:           (d, p)   => ipcRenderer.invoke('menu:saveNow', d, p),
   printPDF:          ()       => ipcRenderer.invoke('print:pdf'),
