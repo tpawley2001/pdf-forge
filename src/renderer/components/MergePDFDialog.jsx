@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
+import { assemble } from '../../pdf/DocAssembler.js';
 
 function fromBase64(b64) {
   const bin = atob(b64);
@@ -12,6 +13,7 @@ export default function MergePDFDialog({ onMerge, onClose }) {
   const [files, setFiles] = useState([]); // { name, data (Uint8Array), pages }
   const [busy,  setBusy]  = useState(false);
   const [error, setError] = useState('');
+  const [fileBookmarks, setFileBookmarks] = useState(true);
 
   const handleAddFiles = async () => {
     setError('');
@@ -50,13 +52,13 @@ export default function MergePDFDialog({ onMerge, onClose }) {
     setBusy(true);
     setError('');
     try {
-      const merged = await PDFDocument.create();
+      const parts = [];
       for (const f of files) {
-        const doc    = await PDFDocument.load(f.data, { ignoreEncryption: true });
-        const count  = doc.getPageCount();
-        const copied = await merged.copyPages(doc, Array.from({ length: count }, (_, i) => i));
-        for (const p of copied) merged.addPage(p);
+        const doc = await PDFDocument.load(f.data, { ignoreEncryption: true });
+        parts.push({ doc, title: f.name.replace(/\.pdf$/i, '') });
       }
+      // Keeps links, bookmarks, form fields, layers and attachments working.
+      const merged = await assemble(parts, { fileBookmarks });
       const bytes = await merged.save();
       onMerge(bytes);
       onClose();
@@ -136,6 +138,11 @@ export default function MergePDFDialog({ onMerge, onClose }) {
           <button className="btn btn-secondary" onClick={handleAddFiles} disabled={busy} style={{ marginBottom: 4 }}>
             ＋ Add PDFs…
           </button>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 8, color: 'var(--text-secondary)' }}>
+            <input type="checkbox" checked={fileBookmarks} onChange={e => setFileBookmarks(e.target.checked)} />
+            Add a bookmark for each file (its own bookmarks nest underneath)
+          </label>
 
           {error && (
             <div style={{ padding: '6px 10px', background: '#f44336', borderRadius: 4, fontSize: 12, marginTop: 8 }}>

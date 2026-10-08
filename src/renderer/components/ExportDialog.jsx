@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
+import { extractPages } from '../../pdf/DocAssembler.js';
 
 function toBase64(u8) {
   let bin = '';
@@ -64,10 +65,7 @@ export default function ExportDialog({ pdfData, pageImages, pageTexts, currentPa
         } else {
           // Subset — extract pages
           const doc    = await PDFDocument.load(pdfData, { ignoreEncryption: true });
-          const newDoc = await PDFDocument.create();
-          const indices = pages.map(p => p - 1);
-          const copied = await newDoc.copyPages(doc, indices);
-          for (const p of copied) newDoc.addPage(p);
+          const newDoc = await extractPages(doc, [...new Set(pages)].map(p => p - 1));
           const bytes = await newDoc.save();
           await window.electronAPI.saveNow(toBase64(bytes), saveResult.filePath);
         }

@@ -833,6 +833,7 @@ export default function App() {
           thumbnails={thumbnails}
           currentPage={currentPage}
           pageCount={pageCount}
+          fileName={fileName}
           onPdfChange={bytes => { setPdfData(bytes); setIsModified(true); setThumbnails({}); setPageTexts({}); setPageImages({}); setPageImageScales({}); setPageOCRData({}); }}
           onClose={() => setShowPageOrganizer(false)}
         />

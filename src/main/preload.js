@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFile:          (opts)   => ipcRenderer.invoke('dialog:saveFile', opts),
   saveFileAs:        (opts)   => ipcRenderer.invoke('dialog:saveFileAs', opts),
   openMultipleFiles: ()       => ipcRenderer.invoke('dialog:openMultipleFiles'),
+  saveParts:         (o)      => ipcRenderer.invoke('dialog:saveParts', o),
   openImageFiles:    ()       => ipcRenderer.invoke('dialog:openImageFiles'),
   readFile:          (p)      => ipcRenderer.invoke('file:read', p),
   loadPdfiumWasm:    ()       => ipcRenderer.invoke('asset:pdfiumWasm'),

@@ -6,6 +6,7 @@
  */
 
 import { PDFDocument } from 'pdf-lib';
+import * as Assembler from './DocAssembler.js';
 
 export class PageOperations {
   // ---------------------------------------------------------------------------
@@ -21,22 +22,10 @@ export class PageOperations {
    */
   deletePages(doc, pageIndices) {
     if (!pageIndices || pageIndices.length === 0) return doc;
-
-    const count = doc.getPageCount();
-    // Validate
-    for (const idx of pageIndices) {
-      if (idx < 0 || idx >= count) {
-        throw new Error(`Page index ${idx} out of range [0, ${count - 1}]`);
-      }
-    }
-
-    // Sort descending so removal indices remain valid
-    const sorted = [...new Set(pageIndices)].sort((a, b) => b - a);
-    for (const idx of sorted) {
-      doc.removePage(idx);
-    }
-    return doc;
+    // Also cleans up links, bookmarks and fields that pointed at the pages.
+    return Assembler.removePages(doc, pageIndices);
   }
+
 
   // ---------------------------------------------------------------------------
   // Insert
@@ -44,7 +33,8 @@ export class PageOperations {
 
   /**
    * Insert pages from a source document into the target document at a specific
-   * position. Uses pdf-lib's copyPages to bring pages across.
+   * position. Their links, bookmarks, form fields, layers and attachments come
+   * along (see DocAssembler).
    *
    * @param {PDFDocument} doc               - Target document
    * @param {PDFDocument} sourceDoc         - Source document
@@ -54,27 +44,9 @@ export class PageOperations {
    */
   async insertPages(doc, sourceDoc, sourcePageIndices, targetIndex) {
     if (!sourcePageIndices || sourcePageIndices.length === 0) return doc;
-
-    const srcCount = sourceDoc.getPageCount();
-    for (const idx of sourcePageIndices) {
-      if (idx < 0 || idx >= srcCount) {
-        throw new Error(`Source page index ${idx} out of range [0, ${srcCount - 1}]`);
-      }
-    }
-
-    const targetCount = doc.getPageCount();
-    if (targetIndex < 0 || targetIndex > targetCount) {
-      throw new Error(`Target index ${targetIndex} out of range [0, ${targetCount}]`);
-    }
-
-    const copiedPages = await doc.copyPages(sourceDoc, sourcePageIndices);
-    let insertAt = targetIndex;
-    for (const page of copiedPages) {
-      doc.insertPage(insertAt, page);
-      insertAt++;
-    }
-    return doc;
+    return Assembler.importPages(doc, sourceDoc, sourcePageIndices, targetIndex);
   }
+
 
   // ---------------------------------------------------------------------------
   // Extract
@@ -91,21 +63,9 @@ export class PageOperations {
     if (!pageIndices || pageIndices.length === 0) {
       return PDFDocument.create();
     }
-
-    const count = doc.getPageCount();
-    for (const idx of pageIndices) {
-      if (idx < 0 || idx >= count) {
-        throw new Error(`Page index ${idx} out of range [0, ${count - 1}]`);
-      }
-    }
-
-    const newDoc = await PDFDocument.create();
-    const copiedPages = await newDoc.copyPages(doc, pageIndices);
-    for (const page of copiedPages) {
-      newDoc.addPage(page);
-    }
-    return newDoc;
+    return Assembler.extractPages(doc, pageIndices);
   }
+
 
   // ---------------------------------------------------------------------------
   // Reorder
@@ -123,49 +83,9 @@ export class PageOperations {
    * @returns {PDFDocument}
    */
   reorderPages(doc, newOrder) {
-    const count = doc.getPageCount();
-    if (!newOrder || newOrder.length !== count) {
-      throw new Error(
-        `newOrder must have exactly ${count} elements, got ${newOrder ? newOrder.length : 0}`,
-      );
-    }
-
-    const seen = new Set();
-    for (const idx of newOrder) {
-      if (idx < 0 || idx >= count) {
-        throw new Error(`Invalid page index ${idx} in newOrder`);
-      }
-      if (seen.has(idx)) {
-        throw new Error(`Duplicate page index ${idx} in newOrder`);
-      }
-      seen.add(idx);
-    }
-
-    // Reorder by moving pages one at a time
-    for (let targetPos = 0; targetPos < newOrder.length; targetPos++) {
-      const desiredOrigIdx = newOrder[targetPos];
-      // Find where that page currently resides
-      // After previous moves, pages shift. We do a safe approach:
-      // Build an array of current page indices and move.
-      // Simpler: use pdf-lib's insert/remove to reorder.
-    }
-
-    // Robust approach: extract then rebuild
-    const pages = doc.getPages();
-    const reordered = newOrder.map(i => pages[i]);
-
-    // Remove all pages
-    while (doc.getPageCount() > 0) {
-      doc.removePage(0);
-    }
-
-    // Add back in new order
-    for (const page of reordered) {
-      doc.insertPage(doc.getPageCount(), page);
-    }
-
-    return doc;
+    return Assembler.reorderPages(doc, newOrder);
   }
+
 
   // ---------------------------------------------------------------------------
   // Rotate
@@ -277,21 +197,9 @@ export class PageOperations {
     if (!docs || docs.length === 0) {
       return PDFDocument.create();
     }
-
-    const merged = await PDFDocument.create();
-
-    for (const doc of docs) {
-      const pageCount = doc.getPageCount();
-      if (pageCount === 0) continue;
-      const pageIndices = Array.from({ length: pageCount }, (_, i) => i);
-      const copiedPages = await merged.copyPages(doc, pageIndices);
-      for (const page of copiedPages) {
-        merged.addPage(page);
-      }
-    }
-
-    return merged;
+    return Assembler.assemble(docs.filter(d => d.getPageCount() > 0).map(doc => ({ doc })));
   }
+
 
   // ---------------------------------------------------------------------------
   // Utility

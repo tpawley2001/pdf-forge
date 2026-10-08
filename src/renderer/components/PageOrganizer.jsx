@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { PDFDocument, degrees } from 'pdf-lib';
+import { extractPages, importPages, reorderPages, removePages, splitDocument, splitGroups } from '../../pdf/DocAssembler.js';
 
 function toBase64(u8) {
   let bin = '';
@@ -11,7 +12,7 @@ async function loadDoc(pdfData) {
   return PDFDocument.load(pdfData, { ignoreEncryption: true });
 }
 
-export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCount: pageCountProp, onPdfChange, onClose }) {
+export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCount: pageCountProp, fileName, onPdfChange, onClose }) {
   // Prefer the real page count; fall back to loaded thumbnails if unset
   const pageCount = pageCountProp || Object.keys(thumbnails || {}).length;
 
@@ -20,6 +21,9 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
   const [error,    setError]      = useState('');
   const [dragIdx,  setDragIdx]    = useState(null);
   const [dragOver, setDragOver]   = useState(null);
+  const [splitOpen,  setSplitOpen]  = useState(false);
+  const [splitEvery, setSplitEvery] = useState(1);
+  const [notice,     setNotice]     = useState('');
   // Local order array (indices into original pages)
   const [order, setOrder] = useState(() => Array.from({ length: pageCount }, (_, i) => i));
 
@@ -63,9 +67,8 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
     if (selected.size >= numPages) { setError('Cannot delete all pages'); return; }
     withDoc(async doc => {
       // Map selected display positions → original page indices → current page indices
-      const origIndices = [...selected].map(i => order[i]);
-      const sorted = [...origIndices].sort((a, b) => b - a);
-      for (const idx of sorted) doc.removePage(idx);
+      // Also drops links, bookmarks and form fields that pointed at them.
+      removePages(doc, [...selected].map(i => order[i]));
       return doc.save();
     });
   }, [selected, numPages, order, withDoc]);
@@ -99,10 +102,8 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
       if (saveResult.canceled) { setBusy(false); return; }
 
       const doc    = await loadDoc(pdfData);
-      const newDoc = await PDFDocument.create();
       const indices = [...selected].sort((a, b) => a - b).map(i => order[i]);
-      const copied = await newDoc.copyPages(doc, indices);
-      for (const p of copied) newDoc.addPage(p);
+      const newDoc = await extractPages(doc, indices);
       const bytes  = await newDoc.save();
       await window.electronAPI.saveNow(toBase64(bytes), saveResult.filePath);
     } catch (err) {
@@ -136,10 +137,9 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
       const srcBytes  = Uint8Array.from(atob(opened.data), c => c.charCodeAt(0));
       const srcDoc    = await loadDoc(srcBytes);
       const srcCount  = srcDoc.getPageCount();
-      const insertAt  = selected.size > 0 ? Math.min(...selected) + 1 : targetDoc.getPageCount();
-      const copied    = await targetDoc.copyPages(srcDoc, Array.from({ length: srcCount }, (_, i) => i));
-      let pos = insertAt;
-      for (const p of copied) { targetDoc.insertPage(pos, p); pos++; }
+      const insertAt  = selected.size > 0 ? Math.min(...[...selected].map(i => order[i])) + 1 : targetDoc.getPageCount();
+      importPages(targetDoc, srcDoc, Array.from({ length: srcCount }, (_, i) => i), insertAt,
+        { title: (opened.fileName || 'Inserted pages').replace(/\.pdf$/i, '') });
       const bytes = await targetDoc.save();
       onPdfChange(bytes);
       onClose();
@@ -148,18 +148,40 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
     } finally {
       setBusy(false);
     }
-  }, [pdfData, selected, onPdfChange, onClose]);
+  }, [pdfData, selected, order, onPdfChange, onClose]);
 
   // ── Apply current display order as a reorder ──
   const handleApplyOrder = useCallback(() => {
-    withDoc(async doc => {
-      const pages = doc.getPages();
-      const newDoc = await PDFDocument.create();
-      const copied = await newDoc.copyPages(doc, order);
-      for (const p of copied) newDoc.addPage(p);
-      return newDoc.save();
-    });
+    // In place, so links, bookmarks and form fields keep pointing at the right pages.
+    withDoc(async doc => reorderPages(doc, order).save());
   }, [order, withDoc]);
+
+  // ── Split into several files ──
+  const handleSplit = useCallback(async (mode) => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const doc = await loadDoc(pdfData);
+      const count = doc.getPageCount();
+      const groups = mode === 'every'
+        ? splitGroups(count, { every: Math.max(1, Math.floor(Number(splitEvery) || 1)) })
+        : splitGroups(count, { before: [...selected] });
+      if (groups.length < 2) { setError('That split would produce a single file'); return; }
+      const parts = await splitDocument(doc, groups);
+      const b64 = [];
+      for (const part of parts) b64.push(toBase64(await part.save()));
+      const res = await window.electronAPI.saveParts({ defaultPath: fileName || 'document.pdf', parts: b64 });
+      if (res.canceled) return;
+      if (!res.success) { setError(res.error || 'Split failed'); return; }
+      setNotice(`Saved ${res.paths.length} files`);
+      setSplitOpen(false);
+    } catch (err) {
+      setError(err.message || 'Split failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [pdfData, selected, splitEvery, fileName]);
 
   // ── Drag-and-drop reorder ──
   const handleDragStart = (e, idx) => {
@@ -224,12 +246,39 @@ export default function PageOrganizer({ pdfData, thumbnails, currentPage, pageCo
             <button className="btn btn-secondary" onClick={handleInsert} disabled={busy}>
               ＋ Insert Pages…
             </button>
+            <button className="btn btn-secondary" onClick={() => setSplitOpen(v => !v)} disabled={busy || orderChanged || numPages < 2}
+              title={orderChanged ? 'Apply the new order first' : 'Split into several files'}>
+              ⫽ Split…
+            </button>
             {orderChanged && (
               <button className="btn btn-primary" onClick={handleApplyOrder} disabled={busy} style={{ marginLeft: 'auto' }}>
                 Apply New Order
               </button>
             )}
           </div>
+
+          {splitOpen && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '8px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: 12 }}>
+              <span>Split every</span>
+              <input type="number" min={1} max={numPages} value={splitEvery} onChange={e => setSplitEvery(e.target.value)}
+                style={{ width: 56 }} />
+              <span>page{Number(splitEvery) === 1 ? '' : 's'}</span>
+              <button className="btn btn-primary" onClick={() => handleSplit('every')} disabled={busy}>Split</button>
+              <span style={{ width: 1, background: 'var(--border-color)', margin: '0 4px', alignSelf: 'stretch' }} />
+              <button className="btn btn-secondary" onClick={() => handleSplit('before')}
+                disabled={busy || [...selected].every(i => i === 0)}
+                title="Each selected page starts a new file">
+                Split before selected pages
+              </button>
+              <span style={{ color: 'var(--text-muted)' }}>Links, bookmarks, form fields, layers and attachments carry over.</span>
+            </div>
+          )}
+
+          {notice && (
+            <div style={{ marginBottom: 10, padding: '6px 10px', background: 'var(--accent-light)', borderRadius: 4, fontSize: 12 }}>
+              {notice}
+            </div>
+          )}
 
           {error && (
             <div style={{ marginBottom: 10, padding: '6px 10px', background: '#f44336', borderRadius: 4, fontSize: 12 }}>

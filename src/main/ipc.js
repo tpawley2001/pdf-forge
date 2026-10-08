@@ -281,6 +281,43 @@ function registerIpcHandlers(getMainWindow) {
     return { canceled: false, filePath: result.filePath };
   });
 
+  // ── Save split parts: one dialog picks the base name, parts are numbered ──
+  ipcMain.handle('dialog:saveParts', async (_event, opts = {}) => {
+    const win = getMainWindow();
+    const parts = Array.isArray(opts.parts) ? opts.parts : [];
+    if (!win || parts.length === 0) return { canceled: true };
+    const result = await dialog.showSaveDialog(win, {
+      title: opts.title || 'Save Split Parts',
+      defaultPath: opts.defaultPath || 'document.pdf',
+      buttonLabel: 'Save Parts',
+      filters: [{ name: 'PDF Documents', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const base = path.resolve(result.filePath).replace(/\.pdf$/i, '');
+    const width = String(parts.length).length;
+    const paths = parts.map((_, i) => `${base}-part${String(i + 1).padStart(width, '0')}.pdf`);
+    const existing = paths.filter(p => fs.existsSync(p));
+    if (existing.length) {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Replace', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: `${existing.length} of the ${paths.length} files already exist. Replace them?`,
+        detail: existing.map(p => path.basename(p)).join('\n'),
+      });
+      if (response !== 0) return { canceled: true };
+    }
+    try {
+      for (let i = 0; i < parts.length; i++) {
+        await fs.promises.writeFile(paths[i], Buffer.from(parts[i], 'base64'));
+      }
+      return { canceled: false, success: true, paths };
+    } catch (err) {
+      return { canceled: false, success: false, error: err.message };
+    }
+  });
+
   // ── Open multiple PDF files (for merge) ──
   ipcMain.handle('dialog:openMultipleFiles', async () => {
     const win = getMainWindow();
