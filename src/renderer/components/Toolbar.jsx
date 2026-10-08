@@ -69,7 +69,7 @@ export default function Toolbar({
   annotationSize,  onSizeChange,
   onOCR, ocrRunning,
   onOrganizePages, onExport, onDocumentProperties, onMergePDF, onImagesToPdf,
-  onWatermark, onHeaderFooter, onProtect, onFlattenForm,
+  onWatermark, onHeaderFooter, onProtect, onDigitalSign, onFlattenForm,
   redactCount, onApplyRedactions, isProtected,
 }) {
   const [showFileMenu, setShowFileMenu] = useState(false);
@@ -333,6 +333,9 @@ export default function Toolbar({
               <div className="dropdown__separator" />
               <div className="dropdown__item" onClick={() => { onProtect?.(); setShowToolsMenu(false); }}>
                 <IconLock /> {isProtected ? 'Password Protection… 🔒' : 'Protect with Password…'}
+              </div>
+              <div className="dropdown__item" onClick={() => { onDigitalSign?.(); setShowToolsMenu(false); }}>
+                <IconLock /> Sign with Digital ID…
               </div>
               <div className="dropdown__separator" />
               <div className="dropdown__item" onClick={() => { onFlattenForm?.(); setShowToolsMenu(false); }}>

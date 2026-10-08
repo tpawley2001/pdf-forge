@@ -11,6 +11,7 @@ files:
   - "src/main/**/*"
   - "dist-renderer/**/*"
   - "package.json"
+  - "dist-main/**/*"   # bundled main-process deps (webpack.main.config.js)
 
 extraMetadata:
   main: src/main/main.js

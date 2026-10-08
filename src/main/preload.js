@@ -12,7 +12,7 @@ const ALLOWED_CHANNELS = [
   'menu:toolArrow', 'menu:toolText',
   'menu:find',
   'menu:organizePages', 'menu:export', 'menu:mergePDF', 'menu:imagesToPdf', 'menu:documentProperties',
-  'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm',
+  'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm', 'menu:digitalSign',
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openImageFiles:    ()       => ipcRenderer.invoke('dialog:openImageFiles'),
   readFile:          (p)      => ipcRenderer.invoke('file:read', p),
   loadPdfiumWasm:    ()       => ipcRenderer.invoke('asset:pdfiumWasm'),
+  signRecentIds:     ()       => ipcRenderer.invoke('sign:recentIds'),
+  signPickId:        ()       => ipcRenderer.invoke('sign:pickId'),
+  signReadId:        (p, pw)  => ipcRenderer.invoke('sign:readId', p, pw),
+  signCreateId:      (o)      => ipcRenderer.invoke('sign:createId', o),
+  signAndSave:       (o)      => ipcRenderer.invoke('sign:signAndSave', o),
+  verifySignatures:  (b64)    => ipcRenderer.invoke('sign:verify', b64),
   writeFile:         (p, d)   => ipcRenderer.invoke('file:write', p, d),
   saveNow:           (d, p)   => ipcRenderer.invoke('menu:saveNow', d, p),
   printPDF:          ()       => ipcRenderer.invoke('print:pdf'),

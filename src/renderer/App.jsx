@@ -18,6 +18,8 @@ import HeaderFooterDialog from './components/HeaderFooterDialog';
 import ProtectDialog from './components/ProtectDialog';
 import PasswordPromptDialog from './components/PasswordPromptDialog';
 import RedactDialog from './components/RedactDialog';
+import DigitalSignDialog from './components/DigitalSignDialog';
+import { SignatureBanner, SignaturePanelDialog } from './components/SignaturePanel';
 import { useAnnotations } from './hooks/useAnnotations';
 import { TextEditor } from '../pdf/TextEditor.js';
 import { createOCRWorker, parseBlocks } from './services/ocr.js';
@@ -65,6 +67,10 @@ export default function App() {
   const [showProtect,            setShowProtect]            = useState(false);
   const [formValues,             setFormValues]             = useState({});
   const [protection,             setProtection]             = useState(null); // encrypt-at-save settings
+  const [signatures,             setSignatures]             = useState(null); // verified signatures of the opened file
+  const [signDialog,             setSignDialog]             = useState(null); // { initial?, error? } while open
+  const [pendingSign,            setPendingSign]            = useState(null); // settings waiting for a placed box
+  const [showSigPanel,           setShowSigPanel]           = useState(false);
   const [passwordPrompt,         setPasswordPrompt]         = useState(null); // { error, busy }
   const [redactDialog,           setRedactDialog]           = useState(null); // { busy, result }
   const [pendingStampType,       setPendingStampType]       = useState('Approved');
@@ -150,6 +156,9 @@ export default function App() {
     setPageOutline([]);
     setDefaultPageSize(null);
     setPdfData(fromBase64(b64));
+    setSignatures(null);
+    setPendingSign(null);
+    window.electronAPI?.verifySignatures?.(b64).then(r => setSignatures(r?.signatures?.length ? r.signatures : null)).catch(() => {});
     setFilePath(path || null);
     setFileName(name || 'Untitled.pdf');
     setFormValues({});
@@ -214,18 +223,88 @@ export default function App() {
   }, [loadB64]);
 
   const handleOpen     = useCallback(async () => { try { const r = await window.electronAPI.openFile(); if (!r || r.canceled) return; if (r.data) loadB64(r.data, r.filePath, r.fileName); } catch (_) {} }, [loadB64]);
-  const bytesForSave   = useCallback(async () => {
+  const bytesForSave   = useCallback(async ({ encrypt = true } = {}) => {
     let bytes = pdfData;
     if (Object.keys(formValues).length) bytes = await applyFormValues(bytes, formValues);
-    bytes = await flattenAnnotations(bytes, ann.annotations);
-    if (protection) bytes = await encryptPdf(bytes, protection);
+    bytes = await flattenAnnotations(bytes, ann.annotations.filter(a => a.type !== 'sigField'));
+    if (protection && encrypt) bytes = await encryptPdf(bytes, protection);
     return bytes;
   }, [pdfData, ann.annotations, formValues, protection]);
+  // ── Digital signatures ──
+  const [signPlacement, setSignPlacement] = useState(null);
+
+  const performSign = useCallback(async (settings, placement) => {
+    setIsLoading(true);
+    try {
+      const bytes = await bytesForSave({ encrypt: false }); // signer encrypts (if protected) while signing
+      let appearance;
+      if (placement) {
+        const lines = [`Digitally signed by ${settings.id.name}`, `Date: ${new Date().toLocaleString()}`];
+        if (settings.reason) lines.push(`Reason: ${settings.reason}`);
+        if (settings.location) lines.push(`Location: ${settings.location}`);
+        appearance = {
+          pageIndex: placement.page - 1,
+          x: placement.rect.x, y: placement.rect.y,
+          width: placement.rect.width, height: placement.rect.height,
+          text: lines.join('\n'),
+        };
+      }
+      const base = (fileName || 'document.pdf').replace(/\.pdf$/i, '');
+      const r = await window.electronAPI.signAndSave({
+        pdfB64: toBase64(bytes),
+        idPath: settings.idPath,
+        password: settings.password,
+        reason: settings.reason, location: settings.location, contact: settings.contact,
+        appearance,
+        tsaUrl: settings.tsaUrl || undefined,
+        ltv: settings.ltv,
+        protection: protection || undefined,
+        defaultPath: `${base}_signed.pdf`,
+      });
+      if (r?.canceled) return;
+      if (!r?.success) { setSignDialog({ initial: settings, error: r?.error || 'Signing failed' }); return; }
+      loadB64(r.data, r.filePath, r.fileName); // reopen the signed file (re-verifies)
+    } catch (err) {
+      setSignDialog({ initial: settings, error: err.message });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [bytesForSave, fileName, protection, loadB64]);
+
+  const handleSignSettings = useCallback((settings) => {
+    setSignDialog(null);
+    if (settings.visible) {
+      setPendingSign(settings);
+      setActiveTool('sigField');
+    } else {
+      performSign(settings, null);
+    }
+  }, [performSign]);
+
+  useEffect(() => {
+    if (!signPlacement || !pendingSign) return;
+    const settings = pendingSign;
+    setSignPlacement(null);
+    setPendingSign(null);
+    setActiveTool('hand');
+    performSign(settings, signPlacement);
+  }, [signPlacement, pendingSign, performSign]);
+
+  useEffect(() => {
+    if (activeTool !== 'sigField') return undefined;
+    const onKey = e => { if (e.key === 'Escape') { setPendingSign(null); setActiveTool('hand'); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTool]);
+
   const handleSave     = useCallback(async () => { if (!pdfData) return; if (!filePath) return handleSaveAs(); setIsLoading(true); try { const bytes = await bytesForSave(); const r = await window.electronAPI.saveNow(toBase64(bytes), filePath); if (r?.success) setIsModified(false); } catch (err) { console.error('Save failed:', err); } finally { setIsLoading(false); } }, [filePath, pdfData, bytesForSave]);
   const handleSaveAs   = useCallback(async () => { if (!pdfData) return; setIsLoading(true); try { const r = await window.electronAPI.saveFile({ defaultPath: fileName || 'document.pdf' }); if (!r || r.canceled) return; const bytes = await bytesForSave(); const wr = await window.electronAPI.saveNow(toBase64(bytes), r.filePath); if (wr?.success) { setFilePath(r.filePath); setFileName(r.filePath.split(/[/\\]/).pop() || 'document.pdf'); setIsModified(false); } } catch (err) { console.error('Save As failed:', err); } finally { setIsLoading(false); } }, [pdfData, fileName, bytesForSave]);
   const handlePrint    = useCallback(async () => { try { await window.electronAPI.printPDF(); } catch (_) {} }, []);
   const handleNewFile  = useCallback(() => { terminateOCRWorker(); setPageOCRData({}); setOcrEditPage(null); setPdfData(null); setFilePath(null); setFileName(''); setCurrentPage(1); setPageCount(0); setIsModified(false); setThumbnails({}); setPageTexts({}); setPageImages({}); setPageImageScales({}); setPageOutline([]); ann.clear(); }, [ann, terminateOCRWorker]);
-  const handleAnnAdd     = useCallback((type, data) => { ann.addAnnotation(type, data); setIsModified(true); }, [ann]);
+  const handleAnnAdd     = useCallback((type, data) => {
+    if (type === 'sigField') { setSignPlacement(data); return; }
+    ann.addAnnotation(type, data); setIsModified(true);
+  }, [ann]);
   const handleAnnDelete  = useCallback(id => { ann.removeAnnotation(id); if (selectedAnnotationId === id) setSelectedAnnotationId(null); setIsModified(true); }, [ann, selectedAnnotationId]);
 
   // Debug/automation hook (harmless in prod; used by dev tooling)
@@ -588,6 +667,7 @@ export default function App() {
     on('menu:watermark', () => setShowWatermark(true));
     on('menu:headerFooter', () => setShowHeaderFooter(true));
     on('menu:protect', () => setShowProtect(true));
+    on('menu:digitalSign', () => setSignDialog({}));
     on('menu:flattenForm', handleFlattenForm);
     return () => offs.forEach(c => { try { c(); } catch (_) {} });
   }, [handleSave, handleSaveAs, handleNewFile, ann, handleRotateCW, handleRotateCCW, handleFlattenForm]);
@@ -628,6 +708,7 @@ export default function App() {
         onWatermark={() => setShowWatermark(true)}
         onHeaderFooter={() => setShowHeaderFooter(true)}
         onProtect={() => setShowProtect(true)}
+        onDigitalSign={() => setSignDialog({})}
         onFlattenForm={handleFlattenForm}
         redactCount={redactAnnotations.length}
         onApplyRedactions={handleApplyRedactionsClick}
@@ -651,6 +732,8 @@ export default function App() {
         )}
 
         {hasDocument ? (
+          <div className="viewer-column">
+          <SignatureBanner signatures={signatures} modified={isModified} onOpenPanel={() => setShowSigPanel(true)} />
           <PDFViewer
             pdfData={pdfData} scale={scale} currentPage={currentPage}
             setPageCount={setPageCount}
@@ -680,6 +763,7 @@ export default function App() {
             onFormValueChange={handleFormValueChange}
             onPasswordRequired={handlePasswordRequired}
           />
+          </div>
         ) : (
           <WelcomeScreen onOpen={handleOpen} onNewFile={handleNewFile} isLoading={isLoading} />
         )}
@@ -760,6 +844,17 @@ export default function App() {
           onApply={bytes => { setPdfData(bytes); setIsModified(true); }}
           onClose={() => setShowHeaderFooter(false)}
         />
+      )}
+      {signDialog && (
+        <DigitalSignDialog
+          initial={signDialog.initial}
+          error={signDialog.error}
+          onSign={handleSignSettings}
+          onClose={() => setSignDialog(null)}
+        />
+      )}
+      {showSigPanel && signatures && (
+        <SignaturePanelDialog signatures={signatures} onClose={() => setShowSigPanel(false)} />
       )}
       {showProtect && (
         <ProtectDialog

@@ -219,6 +219,10 @@ function setupMenu(getMainWindow) {
           click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:protect'); },
         },
         {
+          label: 'Sign with Digital ID…',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:digitalSign'); },
+        },
+        {
           label: 'Flatten Form Fields',
           click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:flattenForm'); },
         },

@@ -734,3 +734,26 @@ input[type="radio"].form-field {
   font-size: 12px;
   padding: 6px 10px;
 }
+
+/* ── Digital signatures ─────────────────────────────────────────── */
+.viewer-column { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.sig-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--border-color);
+  color: #fff;
+}
+.sig-banner .btn { margin-left: auto; padding: 3px 10px; font-size: 11px; }
+.sig-banner__icon { font-weight: 700; }
+.sig-banner--ok    { background: #1e7e34; }
+.sig-banner--info  { background: #1f5f99; }
+.sig-banner--warn  { background: #9a6b00; }
+.sig-banner--error { background: #a12a2a; }
+.sig-id-card {
+  font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 6px;
+  background: var(--bg-input); border: 1px solid var(--border-input);
+}
+.sig-id-card__warn { margin-top: 4px; color: #d39e00; font-size: 11px; }
+.sig-entry { font-size: 12px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-input); }
+.sig-entry--bad { border-color: #a12a2a; }
+.sig-entry__title { font-weight: 600; margin-bottom: 4px; }
+.sig-entry ul { margin: 0; padding-left: 18px; line-height: 1.6; }

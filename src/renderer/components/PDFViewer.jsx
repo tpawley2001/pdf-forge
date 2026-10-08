@@ -255,6 +255,13 @@ export default function PDFViewer({
         const size  = annotationSize  || 2;
 
         switch (activeTool) {
+          case 'sigField':
+            if (Math.abs(dx) > 8 && Math.abs(dy) > 8)
+              onAnnotationAdd?.('sigField', {
+                page: drawStart.pageNum,
+                rect: { x: Math.min(drawStart.x, endX), y: Math.min(drawStart.y, endY), width: Math.abs(dx), height: Math.abs(dy) },
+              });
+            break;
           case 'redact':
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3)
               onAnnotationAdd?.('redact', {
@@ -427,6 +434,9 @@ export default function PDFViewer({
           : 'crosshair',
       }}
     >
+      {activeTool === 'sigField' && (
+        <div className="viewer__hint">Drag a box where the signature should appear. Press Esc to cancel.</div>
+      )}
       {(activeTool === 'editText' || activeTool === 'select') && (
         <div className="viewer__hint">
           {activeTool === 'editText'

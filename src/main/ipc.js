@@ -5,6 +5,8 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const { VERSION } = require('./version');
+// Packaged builds ship without node_modules: use the webpack bundle there
+const signing = app.isPackaged ? require('../../dist-main/signing.js') : require('./signing');
 
 const UPDATE_HOSTS = [
   'http://pdf-update.local:3000',
@@ -106,6 +108,116 @@ function registerIpcHandlers(getMainWindow) {
       allowedPaths.add(path.resolve(filePath));
       return { valid: true };
     } catch (err) { return { valid: false, reason: err.message }; }
+  });
+
+  // ── Digital signatures (keys stay in the main process) ──
+  const idPaths = new Set();               // Digital ID files the user picked/created
+  const recentIdsFile = () => path.join(app.getPath('userData'), 'digital-ids.json');
+  const loadRecentIds = async () => {
+    try {
+      const list = JSON.parse(await fs.promises.readFile(recentIdsFile(), 'utf8'));
+      return Array.isArray(list) ? list.filter(p => typeof p === 'string') : [];
+    } catch (_) { return []; }
+  };
+  const rememberId = async (p) => {
+    const list = [p, ...(await loadRecentIds()).filter(x => x !== p)].slice(0, 8);
+    await fs.promises.mkdir(path.dirname(recentIdsFile()), { recursive: true });
+    await fs.promises.writeFile(recentIdsFile(), JSON.stringify(list, null, 2));
+  };
+  const idInfo = p => ({ path: p, fileName: path.basename(p) });
+
+  ipcMain.handle('sign:recentIds', async () => {
+    const out = [];
+    for (const p of await loadRecentIds()) {
+      try { await fs.promises.access(p); idPaths.add(p); out.push(idInfo(p)); } catch (_) { /* gone */ }
+    }
+    return out;
+  });
+
+  ipcMain.handle('sign:pickId', async () => {
+    const win = getMainWindow();
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Choose a Digital ID',
+      filters: [{ name: 'Digital ID (PKCS#12)', extensions: ['p12', 'pfx'] }],
+      properties: ['openFile'],
+    });
+    if (r.canceled || !r.filePaths.length) return { canceled: true };
+    const p = path.resolve(r.filePaths[0]);
+    idPaths.add(p);
+    return { canceled: false, ...idInfo(p) };
+  });
+
+  ipcMain.handle('sign:readId', async (_e, idPath, password) => {
+    const p = path.resolve(String(idPath || ''));
+    if (!idPaths.has(p)) return { success: false, error: 'Digital ID not authorized' };
+    try {
+      const summary = signing.readDigitalId(await fs.promises.readFile(p), password);
+      await rememberId(p);
+      return { success: true, id: summary };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('sign:createId', async (_e, opts = {}) => {
+    const win = getMainWindow();
+    try {
+      const bytes = signing.createDigitalId(opts);
+      const safe = String(opts.name || 'DigitalID').replace(/[^\w.-]+/g, '_');
+      const r = await dialog.showSaveDialog(win, {
+        title: 'Save your new Digital ID',
+        defaultPath: path.join(app.getPath('documents'), `${safe}.pfx`),
+        filters: [{ name: 'Digital ID (PKCS#12)', extensions: ['pfx', 'p12'] }],
+      });
+      if (r.canceled || !r.filePath) return { canceled: true };
+      const p = path.resolve(r.filePath);
+      await fs.promises.writeFile(p, bytes, { mode: 0o600 });
+      idPaths.add(p);
+      await rememberId(p);
+      return { success: true, ...idInfo(p), id: signing.readDigitalId(bytes, opts.password) };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
+  // Sign, then write straight to disk: any later rewrite would break the signature
+  ipcMain.handle('sign:signAndSave', async (_e, o = {}) => {
+    const win = getMainWindow();
+    const p = path.resolve(String(o.idPath || ''));
+    if (!idPaths.has(p)) return { success: false, error: 'Digital ID not authorized' };
+    // E2E tests can't click native dialogs; this env var is only set by the harness
+    const r = process.env.PDF_FORGE_TEST_SIGN_OUT
+      ? { canceled: false, filePath: process.env.PDF_FORGE_TEST_SIGN_OUT }
+      : await dialog.showSaveDialog(win, {
+        title: 'Save Signed PDF',
+        defaultPath: o.defaultPath || 'signed.pdf',
+        filters: [{ name: 'PDF Documents', extensions: ['pdf'] }],
+      });
+    if (r.canceled || !r.filePath) return { canceled: true };
+    try {
+      const signed = await signing.signPdf({
+        pdfBytes: Buffer.from(o.pdfB64, 'base64'),
+        p12Bytes: await fs.promises.readFile(p),
+        password: o.password,
+        reason: o.reason,
+        location: o.location,
+        contact: o.contact,
+        appearance: o.appearance ? {
+          ...o.appearance,
+          imagePng: o.appearance.imagePngB64 ? Buffer.from(o.appearance.imagePngB64, 'base64') : undefined,
+        } : undefined,
+        tsaUrl: o.tsaUrl,
+        ltv: o.ltv,
+        protection: o.protection,
+      });
+      const out = path.resolve(r.filePath);
+      await fs.promises.writeFile(out, signed);
+      allowedPaths.add(out);
+      return { success: true, filePath: out, fileName: path.basename(out), data: signed.toString('base64') };
+    } catch (err) {
+      return { success: false, error: /password|mac/i.test(err.message) ? 'Incorrect password for this Digital ID.' : err.message };
+    }
+  });
+
+  ipcMain.handle('sign:verify', async (_e, pdfB64) => {
+    try { return { success: true, signatures: await signing.verifySignatures(Buffer.from(pdfB64, 'base64')) }; }
+    catch (err) { return { success: false, error: err.message, signatures: [] }; }
   });
 
   // ── Auto-update ──

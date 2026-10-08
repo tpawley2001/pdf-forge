@@ -10,6 +10,7 @@ Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Elec
 - **Fill forms** — interactive AcroForm fields (text, checkboxes, radios, dropdowns) rendered right on the page; flatten fields when done
 - **Redact** — true redaction: marked content is *removed* from the file, verified, and pages that can't be cleanly scrubbed are flattened to an image — never just a black box over live text
 - **Watermark & headers/footers** — diagonal/horizontal text watermarks; headers and footers with `{page}`, `{pages}`, `{date}`, and `{bates}` numbering tokens
+- **Digital signatures** — sign with a certificate (.pfx/.p12 Digital ID) like Acrobat's "Use a certificate": visible (drag to place) or invisible, reason/location, optional RFC 3161 trusted timestamp and LTV; create a self-signed Digital ID in-app. Opening a signed PDF verifies every signature (integrity, signer, time, timestamp, later changes, chain to a trusted root) and shows a status bar plus a Signature Panel
 - **Protect** — real password encryption (open password + permissions), and open/unlock password-protected files
 - **Organize pages** — reorder, rotate, delete, extract, duplicate, insert from another PDF; merge PDFs; export pages as images
 - **Create PDF from images** — combine JPEG/PNG pictures into a PDF with reordering, page size (fit/A4/Letter/Legal), orientation, and margins
@@ -20,7 +21,7 @@ Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Elec
 ```bash
 npm install
 npm start            # webpack dev server + Electron
-npm run build        # production build + Windows installer (NSIS)
+npm run build        # renderer + main bundles + Windows installer (NSIS)
 ```
 
 ### img2pdf CLI

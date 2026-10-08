@@ -125,7 +125,8 @@ export default function FormFillLayer({ widgets, viewport, scale, values, onChan
         }
 
         // Signature fields and push buttons: outline only
-        if (w.fieldType === 'Sig') {
+        // (signed fields already show their appearance — no outline)
+        if (w.fieldType === 'Sig' && !w.hasAppearance) {
           return (
             <div
               key={key}
