@@ -13,7 +13,9 @@ Free, open-source, Adobe Acrobat–style PDF editor for Windows. Built with Elec
 - **Digital signatures** — sign with a certificate (.pfx/.p12 Digital ID) like Acrobat's "Use a certificate": visible (drag to place) or invisible, reason/location, optional RFC 3161 trusted timestamp and LTV; create a self-signed Digital ID in-app. Opening a signed PDF verifies every signature (integrity, signer, time, timestamp, later changes, chain to a trusted root) and shows a status bar plus a Signature Panel
 - **Protect** — real password encryption (open password + permissions), and open/unlock password-protected files
 - **Repair & optimize** — Repair PDF rebuilds damaged files (PDFium recovery + qpdf rewrite; offered automatically when a file won't open), Reduce File Size (qpdf object streams + recompression), and Optimize for Fast Web View (qpdf linearization)
-- **Organize pages** — reorder, rotate, delete, extract, duplicate, insert from another PDF; merge PDFs; export pages as images
+- **Organize pages** — reorder, rotate, delete, extract, duplicate, insert from another PDF; merge PDFs; split into several files (every *n* pages or before chosen pages); export pages as images
+- **Combine & split without losing anything** — merging, extracting, splitting and inserting keep links (re-pointed at the copied pages), bookmarks (merged files can get one bookmark each with theirs nested underneath), interactive form fields (same-named fields from different files are renamed so their values stay separate), layers with their on/off defaults, and file attachments. Deleting pages also removes the links and bookmarks that pointed at them
+- **Safe saving** — saves are written to a temporary file and swapped in, so a crash or full disk mid-save never leaves a truncated PDF; closing, quitting or opening another file with unsaved changes asks Save / Don't Save / Cancel; unsaved work is autosaved every minute and offered for recovery if PDF Forge quits unexpectedly (protected documents are autosaved encrypted)
 - **Create PDF from images** — combine JPEG/PNG pictures into a PDF with reordering, page size (fit/A4/Letter/Legal), orientation, and margins
 - **Document properties** — edit title, author, and metadata
 
@@ -39,3 +41,5 @@ Non-JPEG/PNG formats (webp, heic, tiff, …) are converted through ImageMagick i
 ## License
 
 MIT © Hillyard Tech. PDF Forge only uses permissively licensed dependencies (MIT, BSD, Apache-2.0, ISC).
+
+The page assembly design (one copier per source document, rebuilding links, bookmarks, fields, layers and attachments) was inspired by [PdfCraft](https://github.com/storytold/pdfcraft) (MIT OR Apache-2.0); PDF Forge's implementation is its own.

@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
-  "notes": "Acrobat-style paragraph text editing (PDFium): edit whole paragraphs in the original font with reflow, mixed styles kept, move/resize; certificate digital signatures (.pfx/.p12) with visible placement, timestamps, LTV, in-app Digital ID creation, and signature verification panel; Repair PDF, Reduce File Size, and Optimize for Fast Web View (qpdf).",
-  "latestInstaller": "PDF Forge Setup 1.3.0.exe",
-  "sha256": "061c38f9312b87c5c8bff67a45d85a5a4099af49ea01f2f969771318faae7d47"
+  "version": "1.4.0",
+  "notes": "Combine, extract, split and insert pages without losing links, bookmarks, form fields, layers or attachments; new Split (every N pages or before selected pages); deleting pages cleans up links and bookmarks that pointed at them. Safer saving: atomic writes, Save / Don't Save / Cancel prompt before unsaved changes are lost, autosave every minute with crash recovery.",
+  "latestInstaller": "PDF Forge Setup 1.4.0.exe",
+  "sha256": "7871023962bd1867b3d9d6fbf9f383b98fb76fbef2c6d422823c4e82bc2771fe"
 }

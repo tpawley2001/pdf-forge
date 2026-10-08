@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const ALLOWED_CHANNELS = [
-  'file:opened', 'file:saved',
+  'file:opened', 'file:saved', 'app:saveThenClose',
   'menu:new', 'menu:save', 'menu:saveAs',
   'menu:undo', 'menu:redo',
   'menu:zoomIn', 'menu:zoomOut', 'menu:zoomReset',
@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkUpdate:       ()       => ipcRenderer.invoke('update:check'),
   downloadUpdate:    (v)      => ipcRenderer.invoke('update:download', v),
   appInfo:           ()       => ipcRenderer.invoke('app:info'),
+  docState:          (s)      => ipcRenderer.send('doc:state', s),
+  closeNow:          ()       => ipcRenderer.invoke('app:closeNow'),
+  unsavedPrompt:     (n, r)   => ipcRenderer.invoke('dialog:unsaved', n, r),
+  showError:         (t, m)   => ipcRenderer.invoke('dialog:error', t, m),
+  recoveryWrite:     (d, m)   => ipcRenderer.invoke('recovery:write', d, m),
+  recoveryClear:     (id)     => ipcRenderer.invoke('recovery:clear', id),
+  recoveryList:      ()       => ipcRenderer.invoke('recovery:list'),
+  recoveryRead:      (id)     => ipcRenderer.invoke('recovery:read', id),
 
   on: (channel, cb) => {
     if (!ALLOWED_CHANNELS.includes(channel)) return () => {};

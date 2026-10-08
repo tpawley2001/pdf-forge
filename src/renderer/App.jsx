@@ -31,6 +31,7 @@ import { flattenAnnotations } from '../pdf/AnnotationFlattener.js';
 import { applyFormValues, flattenFormFields } from '../pdf/FormFiller.js';
 import { applyRedactions } from '../pdf/Redactor.js';
 import { encryptPdf, decryptPdf } from '../pdf/Protect.js';
+import RecoveryDialog from './components/RecoveryDialog';
 
 function toBase64(u8) {
   let bin = '';
@@ -219,13 +220,26 @@ export default function App() {
 
   // ── File:opened via menu ──
   useEffect(() => {
-    const unsub = window.electronAPI.on('file:opened', ({ filePath: fp, fileName: fn, data: b64 }) => {
-      if (b64) loadB64(b64, fp, fn);
+    const unsub = window.electronAPI.on('file:opened', async ({ filePath: fp, fileName: fn, data: b64 }) => {
+      if (b64 && await guardUnsaved()) loadB64(b64, fp, fn);
     });
     return () => { if (unsub) unsub(); };
-  }, [loadB64]);
+  }, [loadB64, guardUnsaved]);
 
-  const handleOpen     = useCallback(async () => { try { const r = await window.electronAPI.openFile(); if (!r || r.canceled) return; if (r.data) loadB64(r.data, r.filePath, r.fileName); } catch (_) {} }, [loadB64]);
+  // ── Unsaved changes: ask before anything replaces the open document ──
+  const docRef = useRef({});
+  docRef.current.isModified = isModified;
+  docRef.current.fileName = fileName;
+  /** Resolves true when it's fine to replace the open document. */
+  const guardUnsaved = useCallback(async () => {
+    if (!docRef.current.isModified) return true;
+    const choice = await window.electronAPI.unsavedPrompt(docRef.current.fileName, 'open');
+    if (choice === 'save') return !!(await docRef.current.save?.());
+    if (choice === 'discard') { window.electronAPI.recoveryClear(); return true; }
+    return false;
+  }, []);
+
+  const handleOpen     = useCallback(async () => { if (!(await guardUnsaved())) return; try { const r = await window.electronAPI.openFile(); if (!r || r.canceled) return; if (r.data) loadB64(r.data, r.filePath, r.fileName); } catch (_) {} }, [loadB64, guardUnsaved]);
   const bytesForSave   = useCallback(async ({ encrypt = true } = {}) => {
     let bytes = pdfData;
     if (Object.keys(formValues).length) bytes = await applyFormValues(bytes, formValues);
@@ -300,10 +314,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeTool]);
 
-  const handleSave     = useCallback(async () => { if (!pdfData) return; if (!filePath) return handleSaveAs(); setIsLoading(true); try { const bytes = await bytesForSave(); const r = await window.electronAPI.saveNow(toBase64(bytes), filePath); if (r?.success) setIsModified(false); } catch (err) { console.error('Save failed:', err); } finally { setIsLoading(false); } }, [filePath, pdfData, bytesForSave]);
-  const handleSaveAs   = useCallback(async () => { if (!pdfData) return; setIsLoading(true); try { const r = await window.electronAPI.saveFile({ defaultPath: fileName || 'document.pdf' }); if (!r || r.canceled) return; const bytes = await bytesForSave(); const wr = await window.electronAPI.saveNow(toBase64(bytes), r.filePath); if (wr?.success) { setFilePath(r.filePath); setFileName(r.filePath.split(/[/\\]/).pop() || 'document.pdf'); setIsModified(false); } } catch (err) { console.error('Save As failed:', err); } finally { setIsLoading(false); } }, [pdfData, fileName, bytesForSave]);
+  // Both resolve true once the document is safely on disk.
+  const reportSaveError = (err) => { console.error('Save failed:', err); window.electronAPI.showError('Save Failed', `The document could not be saved.\n\n${err?.message || err}`); };
+  const handleSave     = useCallback(async () => { if (!pdfData) return false; if (!filePath) return handleSaveAs(); setIsLoading(true); try { const bytes = await bytesForSave(); const r = await window.electronAPI.saveNow(toBase64(bytes), filePath); if (!r?.success) throw new Error(r?.error || 'Unknown error'); setIsModified(false); return true; } catch (err) { reportSaveError(err); return false; } finally { setIsLoading(false); } }, [filePath, pdfData, bytesForSave]);
+  const handleSaveAs   = useCallback(async () => { if (!pdfData) return false; setIsLoading(true); try { const r = await window.electronAPI.saveFile({ defaultPath: fileName || 'document.pdf' }); if (!r || r.canceled) return false; const bytes = await bytesForSave(); const wr = await window.electronAPI.saveNow(toBase64(bytes), r.filePath); if (!wr?.success) throw new Error(wr?.error || 'Unknown error'); setFilePath(r.filePath); setFileName(r.filePath.split(/[/\\]/).pop() || 'document.pdf'); setIsModified(false); return true; } catch (err) { reportSaveError(err); return false; } finally { setIsLoading(false); } }, [pdfData, fileName, bytesForSave]);
+  docRef.current.save = handleSave;
   const handlePrint    = useCallback(async () => { try { await window.electronAPI.printPDF(); } catch (_) {} }, []);
-  const handleNewFile  = useCallback(() => { terminateOCRWorker(); setPageOCRData({}); setOcrEditPage(null); setPdfData(null); setFilePath(null); setFileName(''); setCurrentPage(1); setPageCount(0); setIsModified(false); setThumbnails({}); setPageTexts({}); setPageImages({}); setPageImageScales({}); setPageOutline([]); ann.clear(); }, [ann, terminateOCRWorker]);
+  const resetDocument  = useCallback(() => { terminateOCRWorker(); setPageOCRData({}); setOcrEditPage(null); setPdfData(null); setFilePath(null); setFileName(''); setCurrentPage(1); setPageCount(0); setIsModified(false); setThumbnails({}); setPageTexts({}); setPageImages({}); setPageImageScales({}); setPageOutline([]); ann.clear(); }, [ann, terminateOCRWorker]);
+  const handleNewFile  = useCallback(async () => { if (await guardUnsaved()) resetDocument(); }, [guardUnsaved, resetDocument]);
   const handleAnnAdd     = useCallback((type, data) => {
     if (type === 'sigField') { setSignPlacement(data); return; }
     ann.addAnnotation(type, data); setIsModified(true);
@@ -312,6 +330,57 @@ export default function App() {
 
   // Debug/automation hook (harmless in prod; used by dev tooling)
   useEffect(() => { window.__pdfforge = { loadB64, bytesForSave }; }, [loadB64, bytesForSave]);
+
+  // ── Safety net: close prompt, autosave, crash recovery ──
+  useEffect(() => { window.electronAPI.docState({ modified: isModified && !!pdfData, fileName }); }, [isModified, pdfData, fileName]);
+  useEffect(() => window.electronAPI.on('app:saveThenClose', async () => {
+    if (await handleSave()) window.electronAPI.closeNow();
+  }), [handleSave]);
+
+  // Autosave a copy for crash recovery every minute while there are unsaved
+  // changes (encrypted documents are autosaved encrypted, as on save).
+  docRef.current.autosave = { pdfData, filePath, bytesForSave };
+  useEffect(() => { if (!isModified) window.electronAPI.recoveryClear(); }, [isModified]);
+  useEffect(() => {
+    let timer;
+    let busy = false;
+    let cancelled = false;
+    window.electronAPI.appInfo().then(info => {
+      if (cancelled) return;
+      timer = setInterval(async () => {
+        const { pdfData: data, filePath: fp, bytesForSave: getBytes } = docRef.current.autosave;
+        if (busy || !data || !docRef.current.isModified) return;
+        busy = true;
+        try {
+          const bytes = await getBytes();
+          if (docRef.current.isModified) await window.electronAPI.recoveryWrite(toBase64(bytes), { fileName: docRef.current.fileName, filePath: fp });
+        } catch (err) {
+          console.warn('Autosave failed:', err);
+        } finally {
+          busy = false;
+        }
+      }, info?.autosaveMs || 60000);
+    });
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+
+  const [recoverable, setRecoverable] = useState([]);
+  useEffect(() => { window.electronAPI.recoveryList().then(list => setRecoverable(list || [])).catch(() => {}); }, []);
+  const handleRecover = useCallback(async (item) => {
+    try {
+      const r = await window.electronAPI.recoveryRead(item.id);
+      loadB64(r.data, r.filePath, r.fileName);
+      setIsModified(true);
+      await window.electronAPI.recoveryClear(item.id);
+      setRecoverable([]);
+    } catch (err) {
+      window.electronAPI.showError('Recovery Failed', err?.message || String(err));
+    }
+  }, [loadB64]);
+  const handleDiscardRecovery = useCallback(async (item) => {
+    await window.electronAPI.recoveryClear(item.id);
+    setRecoverable(list => list.filter(x => x.id !== item.id));
+  }, []);
 
   // ── Interactive form filling ──
   const handleFormValueChange = useCallback((name, value) => {
@@ -388,8 +457,8 @@ export default function App() {
 
   const handlePasswordCancel = useCallback(() => {
     setPasswordPrompt(null);
-    handleNewFile();
-  }, [handleNewFile]);
+    resetDocument();
+  }, [resetDocument]);
 
   // ── Redaction ──
   const redactAnnotations = ann.annotations.filter(a => a.type === 'redact');
@@ -645,7 +714,7 @@ export default function App() {
 
   // ── Drag & Drop ──
   const handleDragOver = useCallback(e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }, []);
-  const handleDrop     = useCallback(async e => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (file.path) { const v = await window.electronAPI.validateDrop(file.path); if (!v?.valid) return; const r = await window.electronAPI.readFile(file.path); if (r?.success) loadB64(r.data, file.path, r.fileName); } else { const reader = new FileReader(); reader.onload = () => loadB64(reader.result.split(',')[1], null, file.name); reader.readAsDataURL(file); } }, [loadB64]);
+  const handleDrop     = useCallback(async e => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (!(await guardUnsaved())) return; if (file.path) { const v = await window.electronAPI.validateDrop(file.path); if (!v?.valid) return; const r = await window.electronAPI.readFile(file.path); if (r?.success) loadB64(r.data, file.path, r.fileName); } else { const reader = new FileReader(); reader.onload = () => loadB64(reader.result.split(',')[1], null, file.name); reader.readAsDataURL(file); } }, [loadB64, guardUnsaved]);
 
   // ── Auto-update ──
   useEffect(() => { (async () => { try { const info = await window.electronAPI.checkUpdate(); if (info?.updateAvailable) { setUpdateInfo(info); setShowUpdate(true); } else setUpdateInfo(info); } catch (_) {} })(); }, []);
@@ -858,13 +927,16 @@ export default function App() {
       )}
       {showMergePDF && (
         <MergePDFDialog
-          onMerge={bytes => { loadB64(toBase64(bytes), null, 'merged.pdf'); setIsModified(true); }}
+          onMerge={async bytes => { if (!(await guardUnsaved())) return; loadB64(toBase64(bytes), null, 'merged.pdf'); setIsModified(true); }}
           onClose={() => setShowMergePDF(false)}
         />
       )}
+      {recoverable.length > 0 && (
+        <RecoveryDialog items={recoverable} onRecover={handleRecover} onDiscard={handleDiscardRecovery} onClose={() => setRecoverable([])} />
+      )}
       {showImagesToPdf && (
         <ImagesToPdfDialog
-          onCreate={bytes => { loadB64(toBase64(bytes), null, 'images.pdf'); setIsModified(true); }}
+          onCreate={async bytes => { if (!(await guardUnsaved())) return; loadB64(toBase64(bytes), null, 'images.pdf'); setIsModified(true); }}
           onClose={() => setShowImagesToPdf(false)}
         />
       )}

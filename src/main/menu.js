@@ -2,6 +2,7 @@ const { app, Menu, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { addAllowedPath } = require('./ipc');
+const { writeFileAtomic } = require('./safeFiles');
 const { VERSION } = require('./version');
 
 function setupMenu(getMainWindow) {
@@ -49,7 +50,7 @@ function setupMenu(getMainWindow) {
     if (result.canceled || !result.filePath) return;
 
     try {
-      await fs.promises.writeFile(result.filePath, Buffer.from(dataB64, 'base64'));
+      await writeFileAtomic(result.filePath, Buffer.from(dataB64, 'base64'));
       win.webContents.send('file:saved', {
         filePath: result.filePath,
         fileName: path.basename(result.filePath),

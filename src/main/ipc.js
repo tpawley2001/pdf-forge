@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const { VERSION } = require('./version');
+const safeFiles = require('./safeFiles');
 // Packaged builds ship without node_modules: use the webpack bundle there
 const signing = app.isPackaged ? require('../../dist-main/signing.js') : require('./signing');
 const pdfTools = app.isPackaged ? require('../../dist-main/pdfTools.js') : require('./pdfTools');
@@ -62,7 +63,7 @@ function registerIpcHandlers(getMainWindow) {
     if (!allowedPaths.has(resolved)) return { success: false, error: 'Path not authorized' };
     try {
       await fs.promises.mkdir(path.dirname(resolved), { recursive: true });
-      await fs.promises.writeFile(resolved, Buffer.from(dataB64, 'base64'));
+      await safeFiles.writeFileAtomic(resolved, Buffer.from(dataB64, 'base64'));
       return { success: true, filePath: resolved };
     } catch (err) { return { success: false, error: err.message }; }
   });
@@ -85,7 +86,7 @@ function registerIpcHandlers(getMainWindow) {
     const resolved = path.resolve(filePath);
     if (!allowedPaths.has(resolved)) return { success: false, error: 'Path not authorized' };
     try {
-      await fs.promises.writeFile(resolved, Buffer.from(dataB64, 'base64'));
+      await safeFiles.writeFileAtomic(resolved, Buffer.from(dataB64, 'base64'));
       return { success: true, filePath: resolved };
     } catch (err) { return { success: false, error: err.message }; }
   });
@@ -208,7 +209,7 @@ function registerIpcHandlers(getMainWindow) {
         protection: o.protection,
       });
       const out = path.resolve(r.filePath);
-      await fs.promises.writeFile(out, signed);
+      await safeFiles.writeFileAtomic(out, signed);
       allowedPaths.add(out);
       return { success: true, filePath: out, fileName: path.basename(out), data: signed.toString('base64') };
     } catch (err) {
@@ -310,7 +311,7 @@ function registerIpcHandlers(getMainWindow) {
     }
     try {
       for (let i = 0; i < parts.length; i++) {
-        await fs.promises.writeFile(paths[i], Buffer.from(parts[i], 'base64'));
+        await safeFiles.writeFileAtomic(paths[i], Buffer.from(parts[i], 'base64'));
       }
       return { canceled: false, success: true, paths };
     } catch (err) {
@@ -368,7 +369,33 @@ function registerIpcHandlers(getMainWindow) {
   });
 
   // ── App info ──
-  ipcMain.handle('app:info', async () => ({ version: VERSION, name: 'PDF Forge', platform: process.platform }));
+  ipcMain.handle('app:info', async () => ({
+    version: VERSION, name: 'PDF Forge', platform: process.platform,
+    autosaveMs: Number(process.env.PDF_FORGE_AUTOSAVE_MS) || 60000,
+  }));
+
+  // ── Unsaved changes + crash recovery ──
+  ipcMain.handle('dialog:unsaved', async (_event, fileName, reason) => {
+    const win = getMainWindow();
+    if (!win) return 'discard';
+    return safeFiles.promptUnsaved(win, fileName, reason);
+  });
+  ipcMain.handle('dialog:error', async (_event, title, message) => {
+    dialog.showErrorBox(String(title || 'Error'), String(message || ''));
+  });
+  ipcMain.handle('recovery:write', async (_event, dataB64, meta) => {
+    try { await safeFiles.writeRecovery(dataB64, meta); return { success: true }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('recovery:clear', async (_event, id) => { await safeFiles.clearRecovery(id); });
+  ipcMain.handle('recovery:list', async () => safeFiles.listRecoverable());
+  ipcMain.handle('recovery:read', async (_event, id) => {
+    const r = await safeFiles.readRecovery(id);
+    // The document came from that path in an earlier session; let Save write back to it.
+    if (r.filePath && fs.existsSync(r.filePath)) allowedPaths.add(path.resolve(r.filePath));
+    else r.filePath = null;
+    return r;
+  });
 }
 
 function addAllowedPath(p) { allowedPaths.add(path.resolve(p)); }

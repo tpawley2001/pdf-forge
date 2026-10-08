@@ -1,9 +1,13 @@
-const { app, BrowserWindow, globalShortcut, screen, session } = require('electron');
+const { app, BrowserWindow, globalShortcut, screen, session, ipcMain } = require('electron');
 const path = require('path');
 const { setupMenu } = require('./menu');
 const { registerIpcHandlers } = require('./ipc');
+const { promptUnsaved, clearRecovery } = require('./safeFiles');
 
 let mainWindow = null;
+// What the renderer last reported about the open document.
+let docState = { modified: false, fileName: '' };
+let closeConfirmed = false;
 
 const isDev = !app.isPackaged;
 
@@ -73,6 +77,22 @@ function createWindow() {
     mainWindow.focus();
   });
 
+  // Ask before unsaved changes are lost (window close, Exit, app quit).
+  mainWindow.on('close', async (event) => {
+    if (closeConfirmed || !docState.modified) return;
+    if (mainWindow.webContents.isCrashed()) return;   // nothing left to save from
+    event.preventDefault();
+    const choice = await promptUnsaved(mainWindow, docState.fileName, 'close');
+    if (!mainWindow) return;
+    if (choice === 'discard') {
+      closeConfirmed = true;
+      await clearRecovery();
+      mainWindow.close();
+    } else if (choice === 'save') {
+      mainWindow.webContents.send('app:saveThenClose');   // renderer saves, then calls app:closeNow
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -104,6 +124,15 @@ function createWindow() {
 function getMainWindow() {
   return mainWindow;
 }
+
+ipcMain.on('doc:state', (_event, state) => {
+  docState = { modified: !!state?.modified, fileName: String(state?.fileName || '') };
+});
+ipcMain.handle('app:closeNow', async () => {
+  closeConfirmed = true;
+  await clearRecovery();
+  if (mainWindow) mainWindow.close();
+});
 
 app.whenReady().then(() => {
   setupMenu(getMainWindow);
