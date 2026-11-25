@@ -28,7 +28,7 @@ import { createOCRWorker, parseBlocks } from './services/ocr.js';
 import { matchFontFromRegion, getFontBytes } from './services/fontMatcher.js';
 import { findParagraph, replaceParagraph } from '../pdf/PdfiumTextEditor.js';
 import { flattenAnnotations } from '../pdf/AnnotationFlattener.js';
-import { applyFormValues, flattenFormFields } from '../pdf/FormFiller.js';
+import { applyFormValues, flattenFormFields, addDetectedFields, anyDetectedValue } from '../pdf/FormFiller.js';
 import { applyRedactions } from '../pdf/Redactor.js';
 import { encryptPdf, decryptPdf } from '../pdf/Protect.js';
 import RecoveryDialog from './components/RecoveryDialog';
@@ -69,6 +69,11 @@ export default function App() {
   const [showHeaderFooter,       setShowHeaderFooter]       = useState(false);
   const [showProtect,            setShowProtect]            = useState(false);
   const [formValues,             setFormValues]             = useState({});
+  // Flat forms: blanks found by FormDetector, per page; written as real fields on save once
+  // something is filled in (or the user keeps them).
+  const [detectedFields,         setDetectedFields]         = useState({});
+  const [detectedOff,            setDetectedOff]            = useState(false);
+  const [keepDetected,           setKeepDetected]           = useState(false);
   const [protection,             setProtection]             = useState(null); // encrypt-at-save settings
   const [signatures,             setSignatures]             = useState(null); // verified signatures of the opened file
   const [signDialog,             setSignDialog]             = useState(null); // { initial?, error? } while open
@@ -179,6 +184,33 @@ export default function App() {
     ann.clear();
   }, [ann, terminateOCRWorker]);
 
+  // New bytes (open, page edits, flatten…) → the viewer detects again from scratch.
+  useEffect(() => {
+    setDetectedFields({});
+    setDetectedOff(false);
+    setKeepDetected(false);
+    setFormValues(prev => {
+      const keys = Object.keys(prev).filter(k => k.startsWith('det-'));
+      if (!keys.length) return prev;
+      const next = { ...prev };
+      keys.forEach(k => delete next[k]);
+      return next;
+    });
+  }, [pdfData]);
+  const handleDetectedFields = useCallback((pageNum, fields) => {
+    setDetectedFields(prev => ({ ...prev, [pageNum]: fields }));
+  }, []);
+  const detectedCount = detectedOff ? 0 : Object.values(detectedFields).reduce((n, a) => n + a.length, 0);
+  /** Write detected blanks as real fields (when wanted), then the values of the PDF's own fields. */
+  const withFormValues = useCallback(async (bytes, { force = false } = {}) => {
+    const det = {}, own = {};
+    for (const [k, v] of Object.entries(formValues)) (k.startsWith('det-') ? det : own)[k] = v;
+    const hasDetected = !detectedOff && Object.values(detectedFields).some(a => a.length);
+    if (hasDetected && (force || keepDetected || anyDetectedValue(det))) bytes = await addDetectedFields(bytes, detectedFields, det);
+    if (Object.keys(own).length) bytes = await applyFormValues(bytes, own);
+    return bytes;
+  }, [formValues, detectedFields, detectedOff, keepDetected]);
+
   // ── Thumbnails from PDFViewer ──
   const handleThumbnailReady = useCallback((pageNum, dataUrl) => {
     setThumbnails(prev => ({ ...prev, [pageNum]: dataUrl }));
@@ -226,6 +258,11 @@ export default function App() {
     return () => { if (unsub) unsub(); };
   }, [loadB64, guardUnsaved]);
 
+  // ── File passed on the command line (Explorer "Open with" / double-click) ──
+  useEffect(() => {
+    window.electronAPI.takePendingFile?.().then(r => { if (r?.data) loadB64(r.data, r.filePath, r.fileName); }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Unsaved changes: ask before anything replaces the open document ──
   const docRef = useRef({});
   docRef.current.isModified = isModified;
@@ -241,12 +278,11 @@ export default function App() {
 
   const handleOpen     = useCallback(async () => { if (!(await guardUnsaved())) return; try { const r = await window.electronAPI.openFile(); if (!r || r.canceled) return; if (r.data) loadB64(r.data, r.filePath, r.fileName); } catch (_) {} }, [loadB64, guardUnsaved]);
   const bytesForSave   = useCallback(async ({ encrypt = true } = {}) => {
-    let bytes = pdfData;
-    if (Object.keys(formValues).length) bytes = await applyFormValues(bytes, formValues);
+    let bytes = await withFormValues(pdfData);
     bytes = await flattenAnnotations(bytes, ann.annotations.filter(a => a.type !== 'sigField'));
     if (protection && encrypt) bytes = await encryptPdf(bytes, protection);
     return bytes;
-  }, [pdfData, ann.annotations, formValues, protection]);
+  }, [pdfData, ann.annotations, withFormValues, protection]);
   // ── Digital signatures ──
   const [signPlacement, setSignPlacement] = useState(null);
 
@@ -429,15 +465,14 @@ export default function App() {
     if (!pdfData) return;
     setIsLoading(true);
     try {
-      let bytes = pdfData;
-      if (Object.keys(formValues).length) bytes = await applyFormValues(bytes, formValues);
+      let bytes = await withFormValues(pdfData, { force: anyDetectedValue(formValues) });
       bytes = await flattenFormFields(bytes);
       setPdfData(bytes);
       setFormValues({});
       setIsModified(true);
     } catch (err) { console.error('Flatten form failed:', err); }
     finally { setIsLoading(false); }
-  }, [pdfData, formValues]);
+  }, [pdfData, withFormValues, formValues]);
 
   // ── Encrypted document: unlock into the session ──
   const handlePasswordRequired = useCallback(() => {
@@ -847,6 +882,25 @@ export default function App() {
         {hasDocument ? (
           <div className="viewer-column">
           <SignatureBanner signatures={signatures} modified={isModified} onOpenPanel={() => setShowSigPanel(true)} />
+          {detectedCount > 0 && (
+            <div className="sig-banner sig-banner--info form-detect-banner">
+              <span className="sig-banner__icon">✎</span>
+              <span>
+                This PDF had no fillable fields, so PDF Forge found {detectedCount} blank{detectedCount === 1 ? '' : 's'} and made {detectedCount === 1 ? 'it' : 'them'} fillable.
+                {keepDetected ? ' They will be saved as real form fields.' : ' They are saved as real form fields once you fill one in.'}
+              </span>
+              {!keepDetected && (
+                <button className="btn btn-secondary" title="Save the fields even if they are left empty (makes a reusable fillable form)"
+                  onClick={() => { setKeepDetected(true); setIsModified(true); }}>Keep as fillable form</button>
+              )}
+              <button className="btn btn-secondary" title="Hide the detected fields; nothing is added to the PDF"
+                onClick={() => {
+                  setDetectedOff(true);
+                  setKeepDetected(false);
+                  setFormValues(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith('det-'))));
+                }}>Remove fields</button>
+            </div>
+          )}
           <PDFViewer
             pdfData={pdfData} scale={scale} currentPage={currentPage}
             setPageCount={setPageCount}
@@ -874,6 +928,8 @@ export default function App() {
             onFirstPageSize={handleFirstPageSize}
             formValues={formValues}
             onFormValueChange={handleFormValueChange}
+            detectedFields={detectedOff ? null : detectedFields}
+            onDetectedFields={handleDetectedFields}
             onPasswordRequired={handlePasswordRequired}
             onLoadError={handleLoadError}
           />

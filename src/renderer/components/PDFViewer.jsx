@@ -5,6 +5,7 @@ import AnnotationLayer from './AnnotationLayer';
 import TextReplacementOverlay from './TextReplacementOverlay';
 import OCROverlay from './OCROverlay';
 import FormFillLayer from './FormFillLayer';
+import { detectOnCanvas, textItemsFor, toPdfRect } from '../services/formDetect';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -15,6 +16,18 @@ function rgbToHex(rgb) {
   const m = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
   if (!m) return null;
   return '#' + [m[1], m[2], m[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+}
+
+/** A detected blank, shaped like a pdf.js widget annotation for FormFillLayer. */
+function detectedWidget(d) {
+  const box = d.type === 'checkbox';
+  return {
+    id: d.id, fieldName: d.id, detected: true,
+    fieldType: box ? 'Btn' : 'Tx', checkBox: box, exportValue: 'Yes',
+    fieldValue: box ? 'Off' : '', multiLine: !!d.multiLine,
+    rect: d.rect, annotationFlags: 0,
+    alternativeText: d.label || (box ? 'Check box' : 'Text field'),
+  };
 }
 
 export default function PDFViewer({
@@ -30,6 +43,7 @@ export default function PDFViewer({
   onOutlineReady,
   onFirstPageSize,
   formValues, onFormValueChange,
+  detectedFields, onDetectedFields,
   onPasswordRequired,
   onLoadError,
 }) {
@@ -45,12 +59,22 @@ export default function PDFViewer({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [drawStart, setDrawStart] = useState(null);
   const [freehandPts, setFreehandPts] = useState([]);
+  // Flat-form detection: only for documents without AcroForm fields; each page once per load.
+  const formScanRef = useRef({ skipDetect: true, done: {}, doc: null });
 
   // ── Load document ──
   useEffect(() => {
     if (!pdfData) { setPdfDoc(null); setRenderedPages({}); setLocalPageCount(0); return; }
     const task = pdfjsLib.getDocument({ data: pdfData.slice() });
     task.promise.then(async doc => {
+      // Scan for blanks only when the PDF has no form fields of its own (and isn't a book).
+      let skipDetect = false;
+      try {
+        const fo = await doc.getFieldObjects();
+        skipDetect = !!fo && Object.keys(fo).length > 0;
+      } catch (_) {}
+      if (doc.isPureXfa || doc.numPages > 60) skipDetect = true;
+      formScanRef.current = { skipDetect, done: {}, doc };
       setPdfDoc(doc);
       setLocalPageCount(doc.numPages);
       if (setPageCount) setPageCount(doc.numPages);
@@ -112,6 +136,20 @@ export default function PDFViewer({
             const annots = await page.getAnnotations({ intent: 'display' });
             widgets = annots.filter(a => a.subtype === 'Widget');
           } catch (_) {}
+
+          // Flat form (no real fields): find the blanks and make them fillable.
+          const scan = formScanRef.current;
+          if (!cancelled && onDetectedFields && scan.doc === pdfDoc && !scan.skipDetect && !scan.done[n] && !widgets.length) {
+            scan.done[n] = true;
+            const pageNum = n;
+            const items = textItemsFor(textContent, ocrVp, pdfjsLib.Util);
+            detectOnCanvas(ocrCanvas, { scale: OCR_RENDER_SCALE, textItems: items }).then(found => {
+              if (formScanRef.current !== scan) return;      // another document was opened meanwhile
+              onDetectedFields(pageNum, found.map((f, i) => ({
+                id: `det-${pageNum}-${i}`, type: f.type, label: f.label, multiLine: f.multiLine, rect: toPdfRect(f, ocrVp),
+              })));
+            }).catch(err => console.warn(`Form detection failed on page ${pageNum}:`, err));
+          }
 
           if (!cancelled) {
             // Stable higher-resolution image for OCR and font sampling.
@@ -497,9 +535,9 @@ export default function PDFViewer({
               </svg>
             )}
 
-            {pg?.widgets?.length > 0 && (
+            {pg && (pg.widgets?.length > 0 || detectedFields?.[n]?.length > 0) && (
               <FormFillLayer
-                widgets={pg.widgets}
+                widgets={(pg?.widgets || []).concat((detectedFields?.[n] || []).map(detectedWidget))}
                 viewport={pg.vp}
                 scale={scale}
                 values={formValues || {}}

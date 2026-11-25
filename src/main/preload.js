@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkUpdate:       ()       => ipcRenderer.invoke('update:check'),
   downloadUpdate:    (v)      => ipcRenderer.invoke('update:download', v),
   appInfo:           ()       => ipcRenderer.invoke('app:info'),
+  takePendingFile:   ()       => ipcRenderer.invoke('app:takePendingFile'),
   docState:          (s)      => ipcRenderer.send('doc:state', s),
   closeNow:          ()       => ipcRenderer.invoke('app:closeNow'),
   unsavedPrompt:     (n, r)   => ipcRenderer.invoke('dialog:unsaved', n, r),

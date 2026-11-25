@@ -29,6 +29,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: PDF Forge
+  include: assets/installer.nsh   # registers PDF Forge for .pdf (Open with + Default Apps)
 
 asar: true
 asarUnpack:

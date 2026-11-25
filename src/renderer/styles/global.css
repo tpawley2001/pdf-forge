@@ -743,6 +743,7 @@ input[type="radio"].form-field {
   color: #fff;
 }
 .sig-banner .btn { margin-left: auto; padding: 3px 10px; font-size: 11px; }
+.form-detect-banner .btn + .btn { margin-left: 6px; }
 .sig-banner__icon { font-weight: 700; }
 .sig-banner--ok    { background: #1e7e34; }
 .sig-banner--info  { background: #1f5f99; }

@@ -1,5 +1,6 @@
-const { app, BrowserWindow, globalShortcut, screen, session, ipcMain } = require('electron');
+const { app, BrowserWindow, globalShortcut, screen, session, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { setupMenu } = require('./menu');
 const { registerIpcHandlers } = require('./ipc');
 const { promptUnsaved, clearRecovery } = require('./safeFiles');
@@ -10,6 +11,52 @@ let docState = { modified: false, fileName: '' };
 let closeConfirmed = false;
 
 const isDev = !app.isPackaged;
+
+// ── Opening a PDF from Explorer ("Open with", double-click, drag onto the icon) ──
+// Windows starts the app as `PDF Forge.exe "C:\path\file.pdf"`. A second launch while the app is
+// already running is handed to the first instance (second-instance event) so it opens there.
+function pdfPathFromArgs(argv) {
+  for (const a of (argv || []).slice(1)) {
+    if (!a || a.startsWith('-')) continue;
+    if (!/\.pdf$/i.test(a)) continue;
+    try { if (fs.statSync(a).isFile()) return path.resolve(a); } catch (_) {}
+  }
+  return null;
+}
+let pendingOpenPath = pdfPathFromArgs(process.argv);
+
+async function readForRenderer(filePath) {
+  const { addAllowedPath } = require('./ipc');
+  const buf = await fs.promises.readFile(filePath);
+  addAllowedPath(filePath);
+  return { filePath, fileName: path.basename(filePath), data: buf.toString('base64') };
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', async (_event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    const p = pdfPathFromArgs(argv);
+    if (!p) return;
+    if (!mainWindow || mainWindow.webContents.isLoading()) { pendingOpenPath = p; return; }
+    try { mainWindow.webContents.send('file:opened', await readForRenderer(p)); }
+    catch (err) { dialog.showErrorBox('Open Failed', err.message); }
+  });
+}
+
+// The renderer asks for the start-up file once it is ready to receive it.
+ipcMain.handle('app:takePendingFile', async () => {
+  const p = pendingOpenPath;
+  pendingOpenPath = null;
+  if (!p) return null;
+  try { return await readForRenderer(p); }
+  catch (err) { dialog.showErrorBox('Open Failed', `${p}\n\n${err.message}`); return null; }
+});
 
 const PROD_CSP =
   "default-src 'self'; " +
@@ -134,7 +181,7 @@ ipcMain.handle('app:closeNow', async () => {
   if (mainWindow) mainWindow.close();
 });
 
-app.whenReady().then(() => {
+if (gotLock) app.whenReady().then(() => {
   setupMenu(getMainWindow);
   registerIpcHandlers(getMainWindow);
   createWindow();

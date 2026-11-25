@@ -1,6 +1,6 @@
 {
-  "version": "1.4.1",
-  "notes": "Combine, extract, split and insert pages without losing links, bookmarks, form fields, layers or attachments; new Split (every N pages or before selected pages); deleting pages cleans up links and bookmarks that pointed at them. Safer saving: atomic writes, Save / Don't Save / Cancel prompt before unsaved changes are lost, autosave every minute with crash recovery. 1.4.1: a split or extracted part no longer gets an empty bookmark group from a file whose pages it doesn't contain.",
-  "latestInstaller": "PDF Forge Setup 1.4.1.exe",
-  "sha256": "6f84193ed40859988b6dcaeede71241a6fef398d57e25de61bc37a220328ad81"
+  "version": "1.5.0",
+  "notes": "Opens PDFs from Explorer: double-click / Open with now opens the file (a second file opens in the running window), and the installer registers PDF Forge for .pdf in Open with and Settings > Default apps. Flat forms become fillable: a PDF with no real form fields gets its blanks found automatically (boxes, table cells, writing lines, check boxes, SSN/EIN digit boxes), named after their labels; saving writes them as real form fields. Remove fields undoes it.",
+  "latestInstaller": "PDF Forge Setup 1.5.0.exe",
+  "sha256": "5639a1fe176c598bea6aadd28bf19b19bf49be32ff46e8bdace35a4d2e7accec"
 }
