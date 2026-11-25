@@ -1,22 +1,11 @@
 const { ipcMain, dialog, app } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const https = require('https');
-const crypto = require('crypto');
 const { VERSION } = require('./version');
 const safeFiles = require('./safeFiles');
 // Packaged builds ship without node_modules: use the webpack bundle there
 const signing = app.isPackaged ? require('../../dist-main/signing.js') : require('./signing');
 const pdfTools = app.isPackaged ? require('../../dist-main/pdfTools.js') : require('./pdfTools');
-
-const UPDATE_HOSTS = [
-  'http://pdf-update.local:3000',
-  'http://100.64.0.1:3000',
-  'http://192.168.1.100:3000',
-];
-
-const UPDATE_TOKEN = process.env.PDF_FORGE_UPDATE_TOKEN || '';
 
 const allowedPaths = new Set();
 
@@ -230,43 +219,7 @@ function registerIpcHandlers(getMainWindow) {
     catch (err) { return { success: false, error: err.message, signatures: [] }; }
   });
 
-  // ── Auto-update ──
-  let updateSource = null;
-  let pendingVersion = null;
-  let pendingHash = null;
-
-  ipcMain.handle('update:check', async () => {
-    for (const host of UPDATE_HOSTS) {
-      try {
-        const result = await fetchJSON(`${host}/api/version`);
-        if (result && result.version && result.version !== VERSION) {
-          updateSource = host;
-          pendingVersion = result.version;
-          pendingHash = result.sha256 || null;
-          return { updateAvailable: true, version: result.version, releaseNotes: result.notes || '', source: host };
-        }
-        if (result) return { updateAvailable: false, currentVersion: VERSION, source: host };
-      } catch (_) {}
-    }
-    return { updateAvailable: false, currentVersion: VERSION, offline: true };
-  });
-
-  ipcMain.handle('update:download', async (_event, version) => {
-    if (!updateSource) return { success: false, error: 'No update source discovered' };
-    if (version !== pendingVersion) return { success: false, error: 'Version mismatch' };
-    const url = `${updateSource}/api/download/${encodeURIComponent(version)}`;
-    try {
-      const buf = await downloadFile(url, updateSource, 0);
-      if (pendingHash) {
-        const actual = crypto.createHash('sha256').update(buf).digest('hex');
-        if (actual !== pendingHash) return { success: false, error: 'Hash verification failed' };
-      }
-      const downloadsDir = app.getPath('downloads');
-      const savePath = path.join(downloadsDir, `pdf-forge-update-${version.replace(/[^0-9a-zA-Z._-]/g, '_')}.exe`);
-      await fs.promises.writeFile(savePath, buf);
-      return { success: true, path: savePath };
-    } catch (err) { return { success: false, error: err.message }; }
-  });
+  // Updates: see updater.js (registered from main.js)
 
   // ── Save with custom filters (for image/text export) ──
   ipcMain.handle('dialog:saveFileAs', async (_event, opts = {}) => {
@@ -401,40 +354,4 @@ function registerIpcHandlers(getMainWindow) {
 function addAllowedPath(p) { allowedPaths.add(path.resolve(p)); }
 
 // ── Helpers ──
-function getAuthHeaders() { return UPDATE_TOKEN ? { Authorization: `Bearer ${UPDATE_TOKEN}` } : {}; }
-
-function fetchJSON(url) {
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { timeout: 3000, headers: getAuthHeaders() }, (res) => {
-      let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-  });
-}
-
-function downloadFile(url, originalHost, depth) {
-  if (depth > 3) return Promise.reject(new Error('Too many redirects'));
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { timeout: 30000, headers: getAuthHeaders() }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        try {
-          const redirectUrl = new URL(res.headers.location, url);
-          if (redirectUrl.hostname !== new URL(originalHost).hostname) return reject(new Error('Redirect host blocked'));
-          return downloadFile(redirectUrl.toString(), originalHost, depth + 1).then(resolve, reject);
-        } catch { return reject(new Error('Invalid redirect URL')); }
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-  });
-}
-
 module.exports = { registerIpcHandlers, addAllowedPath };

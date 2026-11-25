@@ -1,6 +1,0 @@
-{
-  "version": "1.5.0",
-  "notes": "Opens PDFs from Explorer: double-click / Open with now opens the file (a second file opens in the running window), and the installer registers PDF Forge for .pdf in Open with and Settings > Default apps. Flat forms become fillable: a PDF with no real form fields gets its blanks found automatically (boxes, table cells, writing lines, check boxes, SSN/EIN digit boxes), named after their labels; saving writes them as real form fields. Remove fields undoes it.",
-  "latestInstaller": "PDF Forge Setup 1.5.0.exe",
-  "sha256": "5639a1fe176c598bea6aadd28bf19b19bf49be32ff46e8bdace35a4d2e7accec"
-}

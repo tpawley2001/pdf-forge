@@ -10,7 +10,7 @@ const ALLOWED_CHANNELS = [
   'menu:toolHighlight', 'menu:toolUnderline', 'menu:toolStrikethrough', 'menu:toolStickyNote',
   'menu:toolFreehand', 'menu:toolRectangle', 'menu:toolEllipse', 'menu:toolLine',
   'menu:toolArrow', 'menu:toolText',
-  'menu:find',
+  'menu:find', 'menu:checkUpdates',
   'menu:organizePages', 'menu:export', 'menu:mergePDF', 'menu:imagesToPdf', 'menu:documentProperties',
   'menu:toolRedact', 'menu:watermark', 'menu:headerFooter', 'menu:protect', 'menu:flattenForm', 'menu:digitalSign', 'menu:repair', 'menu:optimize', 'menu:linearize',
 ];
@@ -35,7 +35,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveNow:           (d, p)   => ipcRenderer.invoke('menu:saveNow', d, p),
   printPDF:          ()       => ipcRenderer.invoke('print:pdf'),
   validateDrop:      (p)      => ipcRenderer.invoke('file:validateDrop', p),
-  checkUpdate:       ()       => ipcRenderer.invoke('update:check'),
+  checkUpdate:       (o)      => ipcRenderer.invoke('update:check', o),
+  installUpdate:     ()       => ipcRenderer.invoke('update:install'),
   downloadUpdate:    (v)      => ipcRenderer.invoke('update:download', v),
   appInfo:           ()       => ipcRenderer.invoke('app:info'),
   takePendingFile:   ()       => ipcRenderer.invoke('app:takePendingFile'),

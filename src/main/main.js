@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { setupMenu } = require('./menu');
 const { registerIpcHandlers } = require('./ipc');
+const { registerUpdater } = require('./updater');
 const { promptUnsaved, clearRecovery } = require('./safeFiles');
 
 let mainWindow = null;
@@ -184,6 +185,7 @@ ipcMain.handle('app:closeNow', async () => {
 if (gotLock) app.whenReady().then(() => {
   setupMenu(getMainWindow);
   registerIpcHandlers(getMainWindow);
+  registerUpdater({ getDocState: () => docState, quit: () => app.quit() });
   createWindow();
 
   app.on('activate', () => {

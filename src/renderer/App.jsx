@@ -752,7 +752,11 @@ export default function App() {
   const handleDrop     = useCallback(async e => { e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (!file) return; if (!(await guardUnsaved())) return; if (file.path) { const v = await window.electronAPI.validateDrop(file.path); if (!v?.valid) return; const r = await window.electronAPI.readFile(file.path); if (r?.success) loadB64(r.data, file.path, r.fileName); } else { const reader = new FileReader(); reader.onload = () => loadB64(reader.result.split(',')[1], null, file.name); reader.readAsDataURL(file); } }, [loadB64, guardUnsaved]);
 
   // ── Auto-update ──
-  useEffect(() => { (async () => { try { const info = await window.electronAPI.checkUpdate(); if (info?.updateAvailable) { setUpdateInfo(info); setShowUpdate(true); } else setUpdateInfo(info); } catch (_) {} })(); }, []);
+  // Updates (GitHub Releases): quiet check at start-up; Help → Check for Updates… always answers.
+  useEffect(() => { (async () => { try { const info = await window.electronAPI.checkUpdate(); setUpdateInfo(info); if (info?.updateAvailable) setShowUpdate(true); } catch (_) {} })(); }, []);
+  useEffect(() => window.electronAPI.on('menu:checkUpdates', async () => {
+    try { const info = await window.electronAPI.checkUpdate({ force: true }); setUpdateInfo(info); setShowUpdate(true); } catch (_) {}
+  }), []);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {

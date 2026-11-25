@@ -291,6 +291,11 @@ function setupMenu(getMainWindow) {
       label: 'Help',
       submenu: [
         {
+          label: 'Check for Updates…',
+          click: (_mi, bw) => { const w = getWin(_mi, bw); if (w) w.webContents.send('menu:checkUpdates'); },
+        },
+        { type: 'separator' },
+        {
           label: 'About PDF Forge',
           click: () => {
             dialog.showMessageBox({
