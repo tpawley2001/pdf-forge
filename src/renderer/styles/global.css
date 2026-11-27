@@ -758,3 +758,30 @@ input[type="radio"].form-field {
 .sig-entry--bad { border-color: #a12a2a; }
 .sig-entry__title { font-weight: 600; margin-bottom: 4px; }
 .sig-entry ul { margin: 0; padding-left: 18px; line-height: 1.6; }
+
+/* "Fix fields" mode on a flat form made fillable */
+.field-type-toggle { margin-left: auto; display: inline-flex; border: 1px solid rgba(255,255,255,0.45); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
+.field-type-toggle + .btn { margin-left: 6px; }
+.field-type-toggle__btn { background: transparent; color: #fff; border: 0; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+.field-type-toggle__btn + .field-type-toggle__btn { border-left: 1px solid rgba(255,255,255,0.45); }
+.field-type-toggle__btn.is-active { background: #fff; color: #1f5f99; font-weight: 600; }
+.field-edit-layer { position: absolute; top: 0; left: 0; z-index: 5; cursor: crosshair; }
+.field-edit-box {
+  position: absolute; box-sizing: border-box;
+  border: 1.5px solid #1a73e8; background: rgba(26, 115, 232, 0.10);
+}
+.field-edit-box--added { border-color: #188038; border-style: dashed; background: rgba(24, 128, 56, 0.12); }
+.field-edit-box:hover { background: rgba(26, 115, 232, 0.22); }
+.field-edit-remove {
+  position: absolute; top: -8px; right: -8px; width: 16px; height: 16px;
+  padding: 0; border: 0; border-radius: 50%;
+  background: #c5221f; color: #fff; font-size: 12px; line-height: 16px; text-align: center;
+  cursor: pointer; opacity: 0; transition: opacity 0.1s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+.field-edit-box:hover .field-edit-remove, .field-edit-remove:focus { opacity: 1; }
+.field-edit-preview {
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed #e37400; background: rgba(227, 116, 0, 0.14);
+}
+.field-edit-preview--draw { border-color: #188038; background: rgba(24, 128, 56, 0.12); }

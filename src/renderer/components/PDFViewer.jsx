@@ -5,6 +5,7 @@ import AnnotationLayer from './AnnotationLayer';
 import TextReplacementOverlay from './TextReplacementOverlay';
 import OCROverlay from './OCROverlay';
 import FormFillLayer from './FormFillLayer';
+import FieldEditLayer from './FieldEditLayer';
 import { detectOnCanvas, textItemsFor, toPdfRect } from '../services/formDetect';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -44,6 +45,7 @@ export default function PDFViewer({
   onFirstPageSize,
   formValues, onFormValueChange,
   detectedFields, onDetectedFields,
+  fieldEdit, onDetectedFieldAdd, onDetectedFieldRemove,
   onPasswordRequired,
   onLoadError,
 }) {
@@ -61,6 +63,8 @@ export default function PDFViewer({
   const [freehandPts, setFreehandPts] = useState([]);
   // Flat-form detection: only for documents without AcroForm fields; each page once per load.
   const formScanRef = useRef({ skipDetect: true, done: {}, doc: null });
+  // Per page: the detector's snap candidates + text, for "add a missed field".
+  const formAnalysisRef = useRef({});
 
   // ── Load document ──
   useEffect(() => {
@@ -75,6 +79,7 @@ export default function PDFViewer({
       } catch (_) {}
       if (doc.isPureXfa || doc.numPages > 60) skipDetect = true;
       formScanRef.current = { skipDetect, done: {}, doc };
+      formAnalysisRef.current = {};
       setPdfDoc(doc);
       setLocalPageCount(doc.numPages);
       if (setPageCount) setPageCount(doc.numPages);
@@ -143,8 +148,9 @@ export default function PDFViewer({
             scan.done[n] = true;
             const pageNum = n;
             const items = textItemsFor(textContent, ocrVp, pdfjsLib.Util);
-            detectOnCanvas(ocrCanvas, { scale: OCR_RENDER_SCALE, textItems: items }).then(found => {
+            detectOnCanvas(ocrCanvas, { scale: OCR_RENDER_SCALE, textItems: items }).then(({ fields: found, candidates }) => {
               if (formScanRef.current !== scan) return;      // another document was opened meanwhile
+              formAnalysisRef.current[pageNum] = { candidates, items, vp: ocrVp };
               onDetectedFields(pageNum, found.map((f, i) => ({
                 id: `det-${pageNum}-${i}`, type: f.type, label: f.label, multiLine: f.multiLine, rect: toPdfRect(f, ocrVp),
               })));
@@ -542,7 +548,19 @@ export default function PDFViewer({
                 scale={scale}
                 values={formValues || {}}
                 onChange={onFormValueChange}
-                interactive={activeTool === 'select' || activeTool === 'hand'}
+                interactive={!fieldEdit && (activeTool === 'select' || activeTool === 'hand')}
+              />
+            )}
+
+            {pg && fieldEdit && (
+              <FieldEditLayer
+                pageNum={n}
+                viewport={pg.vp}
+                fields={detectedFields?.[n] || []}
+                analysis={formAnalysisRef.current[n]}
+                editType={fieldEdit}
+                onAdd={onDetectedFieldAdd}
+                onRemove={onDetectedFieldRemove}
               />
             )}
 

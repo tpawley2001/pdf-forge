@@ -74,6 +74,9 @@ export default function App() {
   const [detectedFields,         setDetectedFields]         = useState({});
   const [detectedOff,            setDetectedOff]            = useState(false);
   const [keepDetected,           setKeepDetected]           = useState(false);
+  // "Fix fields" mode: point at blanks the scan missed / remove wrong ones. Value = field type to add.
+  const [fieldEdit,              setFieldEdit]              = useState(null);   // null | 'auto' | 'text' | 'checkbox'
+  const addedFieldSeq = useRef(0);
   const [protection,             setProtection]             = useState(null); // encrypt-at-save settings
   const [signatures,             setSignatures]             = useState(null); // verified signatures of the opened file
   const [signDialog,             setSignDialog]             = useState(null); // { initial?, error? } while open
@@ -189,6 +192,7 @@ export default function App() {
     setDetectedFields({});
     setDetectedOff(false);
     setKeepDetected(false);
+    setFieldEdit(null);
     setFormValues(prev => {
       const keys = Object.keys(prev).filter(k => k.startsWith('det-'));
       if (!keys.length) return prev;
@@ -198,8 +202,33 @@ export default function App() {
     });
   }, [pdfData]);
   const handleDetectedFields = useCallback((pageNum, fields) => {
-    setDetectedFields(prev => ({ ...prev, [pageNum]: fields }));
+    // Keep fields the user already added on this page.
+    setDetectedFields(prev => ({ ...prev, [pageNum]: fields.concat((prev[pageNum] || []).filter(f => f.user)) }));
   }, []);
+  // Fixing the fields means the user is preparing a form: keep it as one on save.
+  const handleDetectedFieldAdd = useCallback((pageNum, field) => {
+    const id = `det-${pageNum}-u${++addedFieldSeq.current}`;
+    setDetectedFields(prev => ({ ...prev, [pageNum]: [...(prev[pageNum] || []), { ...field, id, user: true }] }));
+    setKeepDetected(true);
+    setIsModified(true);
+  }, []);
+  const handleDetectedFieldRemove = useCallback((pageNum, id) => {
+    setDetectedFields(prev => ({ ...prev, [pageNum]: (prev[pageNum] || []).filter(f => f.id !== id) }));
+    setFormValues(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setKeepDetected(true);
+    setIsModified(true);
+  }, []);
+  useEffect(() => {
+    if (!fieldEdit) return;
+    const onKey = e => { if (e.key === 'Escape') setFieldEdit(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fieldEdit]);
   const detectedCount = detectedOff ? 0 : Object.values(detectedFields).reduce((n, a) => n + a.length, 0);
   /** Write detected blanks as real fields (when wanted), then the values of the PDF's own fields. */
   const withFormValues = useCallback(async (bytes, { force = false } = {}) => {
@@ -886,13 +915,32 @@ export default function App() {
         {hasDocument ? (
           <div className="viewer-column">
           <SignatureBanner signatures={signatures} modified={isModified} onOpenPanel={() => setShowSigPanel(true)} />
-          {detectedCount > 0 && (
+          {fieldEdit && !detectedOff ? (
+            <div className="sig-banner sig-banner--info form-detect-banner">
+              <span className="sig-banner__icon">✎</span>
+              <span>
+                <b>Fix fields:</b> point at a blank the scan missed and click to add a field there, or drag to draw one.
+                Click × on a field to remove it. {detectedCount} field{detectedCount === 1 ? '' : 's'}.
+              </span>
+              <span className="field-type-toggle" role="radiogroup" aria-label="Type of field to add">
+                {[['auto', 'Auto'], ['text', 'Text'], ['checkbox', 'Check box']].map(([v, label]) => (
+                  <button key={v} role="radio" aria-checked={fieldEdit === v}
+                    className={`field-type-toggle__btn${fieldEdit === v ? ' is-active' : ''}`}
+                    title={v === 'auto' ? 'Snap to whatever blank is under the pointer' : `Always add a ${label.toLowerCase()} field`}
+                    onClick={() => setFieldEdit(v)}>{label}</button>
+                ))}
+              </span>
+              <button className="btn btn-secondary" title="Finish fixing fields (Esc)" onClick={() => setFieldEdit(null)}>Done</button>
+            </div>
+          ) : detectedCount > 0 && (
             <div className="sig-banner sig-banner--info form-detect-banner">
               <span className="sig-banner__icon">✎</span>
               <span>
                 This PDF had no fillable fields, so PDF Forge found {detectedCount} blank{detectedCount === 1 ? '' : 's'} and made {detectedCount === 1 ? 'it' : 'them'} fillable.
                 {keepDetected ? ' They will be saved as real form fields.' : ' They are saved as real form fields once you fill one in.'}
               </span>
+              <button className="btn btn-secondary" title="Add a field where the scan missed a blank, or remove a wrong one"
+                onClick={() => setFieldEdit('auto')}>Fix fields…</button>
               {!keepDetected && (
                 <button className="btn btn-secondary" title="Save the fields even if they are left empty (makes a reusable fillable form)"
                   onClick={() => { setKeepDetected(true); setIsModified(true); }}>Keep as fillable form</button>
@@ -901,6 +949,7 @@ export default function App() {
                 onClick={() => {
                   setDetectedOff(true);
                   setKeepDetected(false);
+                  setFieldEdit(null);
                   setFormValues(prev => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith('det-'))));
                 }}>Remove fields</button>
             </div>
@@ -934,6 +983,9 @@ export default function App() {
             onFormValueChange={handleFormValueChange}
             detectedFields={detectedOff ? null : detectedFields}
             onDetectedFields={handleDetectedFields}
+            fieldEdit={detectedOff ? null : fieldEdit}
+            onDetectedFieldAdd={handleDetectedFieldAdd}
+            onDetectedFieldRemove={handleDetectedFieldRemove}
             onPasswordRequired={handlePasswordRequired}
             onLoadError={handleLoadError}
           />

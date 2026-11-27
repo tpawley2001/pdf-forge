@@ -25,7 +25,17 @@ const CHECK_GLYPHS = /[☐□❑❒⬜▢❏❐]/;
  * @param {Array}  [opts.textItems] [{ str, x, baseline, w, size }] in image px (horizontal text only)
  * @returns {Array<{type:'text'|'checkbox', x:number, y:number, w:number, h:number, label:string, multiLine:boolean}>}
  */
-export function detectFormFields(img, { scale = 2, textItems = [], debug = null } = {}) {
+export function detectFormFields(img, opts = {}) {
+  return analyzeFormPage(img, opts).fields;
+}
+
+/**
+ * Same scan as detectFormFields, plus every weaker candidate it turned down (lines without a
+ * label, boxes with text in them, short or crowded lines). The "add a missed field" tool snaps
+ * a click to one of those, so pointing at a blank the scan skipped gives a well-fitted field.
+ * @returns {{ fields: Array, candidates: Array<{type, x, y, w, h, label, multiLine, src}> }}
+ */
+export function analyzeFormPage(img, { scale = 2, textItems = [], debug = null } = {}) {
   const { width: W, height: H, data } = img;
   const P = pt => pt * scale;
   const N = W * H;
@@ -310,9 +320,34 @@ export function detectFormFields(img, { scale = 2, textItems = [], debug = null 
   }
 
   // ── 5. Writing lines ──
-  const segs = horizontalSegments(hRule, W, H, Math.round(P(28)), Math.max(2, Math.round(P(3.5))));
+  // Short blanks ("____ Married") count only with a word right beside them, see below.
+  const segs = horizontalSegments(hRule, W, H, Math.round(P(16)), Math.max(2, Math.round(P(3.5))));
   const lineFields = [];
+  const looseLines = [];                             // turned-down lines, kept as snap candidates
+  // Another rule above a line (stacked address lines, the row above) caps its writing room.
+  const ruleRowAt = (y, x1, x2) => {
+    let c = 0;
+    for (let x = Math.max(0, x1); x < Math.min(W, x2); x++) if (hRule[y * W + x]) c++;
+    return c > (x2 - x1) * 0.3;
+  };
+  const writingRoom = (x1, x2, yLine, tol) => {
+    const maxH = Math.round(P(26));
+    let room = 0, capped = false;
+    while (room < maxH && yLine - room - 1 >= 0) {
+      const y = yLine - room - 1;
+      if (ruleRowAt(y, x1, x2)) { capped = true; break; }
+      if (inkIn(x1, y, x2, y + 1) > tol) break;
+      room++;
+    }
+    return { room, capped };
+  };
+  const loose = (s, x1, why) => {
+    const { room } = writingRoom(x1, s.x2, s.y1, Math.max(1, Math.round((s.x2 - x1) * 0.02)));
+    const h = Math.max(Math.round(P(8)), Math.min(room, Math.round(P(16))));
+    if (s.x2 - x1 >= P(10)) looseLines.push({ type: 'text', x: x1, y: s.y1 - h, w: s.x2 - x1, h, src: 'loose-' + why });
+  };
   for (const s of segs) {
+    const short = s.x2 - s.x1 < P(28);
     // A box edge? (top or bottom of a box we already handled)
     let covered = 0;
     for (const b of boxes) {
@@ -337,37 +372,58 @@ export function detectFormFields(img, { scale = 2, textItems = [], debug = null 
         if (lastInk - x1 > P(26)) {
           const t = textItems.find(t => t.x <= lastInk + P(2) && t.x + t.w >= lastInk - P(4) &&
             t.baseline <= s.y1 + P(2) && t.baseline >= s.y1 - P(12));
-          if (!t || !/:\s*$/.test(t.str.replace(/_+\s*$/, ''))) continue;
+          if (!t || !/:\s*$/.test(t.str.replace(/_+\s*$/, ''))) { loose(s, lastInk + Math.round(P(2)), 'text'); continue; }
         }
         tagLen = lastInk - x1;
         x1 = lastInk + Math.round(P(2));
       }
-      if (x2 - x1 < P(24)) continue;
+      if (x2 - x1 < (short ? P(14) : P(24))) { loose(s, s.x1, 'narrow'); continue; }
     }
-    // How much empty room is there above the line?
-    const maxH = Math.round(P(26));
-    let room = 0;
+    // How much empty room is there above the line? (up to the next rule above it)
     const tol = Math.max(1, Math.round((x2 - x1) * 0.01));
-    while (room < maxH && s.y1 - room - 1 >= 0 && inkIn(x1, s.y1 - room - 1, x2, s.y1 - room) <= tol) room++;
-    if (debug) debug('room', s, { room });
-    if (room < P(9)) continue;                       // underlined text, or rows too tight
+    const { room, capped } = writingRoom(x1, x2, s.y1, tol);
+    if (debug) debug('room', s, { room, capped });
+    // Underlined text, or rows too tight (stacked lines may sit a little closer).
+    if (room < (capped ? P(7) : P(9))) { loose(s, x1, 'tight'); continue; }
     const h = Math.min(room, Math.round(P(18)));
     // Needs a label: ink just left of the line at writing height, or a caption right under it.
     const leftInk = x1 > s.x1 + P(3) || inkFrac(s.x1 - P(120), s.y1 - h, s.x1 - P(1), s.y1 + P(2)) > 0.004;
     const belowInk = inkFrac(s.x1, s.y2 + P(1), s.x2, s.y2 + P(11)) > 0.004;
+    // A word right after the line ("________ City", "____ Married").
+    const rightAdj = inkFrac(s.x2 + P(1), s.y1 - P(9), s.x2 + P(9), s.y1 + P(1)) > 0.02;
+    const leftAdj = x1 > s.x1 + P(3) || inkFrac(s.x1 - P(9), s.y1 - P(9), s.x1 - P(1), s.y1 + P(1)) > 0.02;
+    // A prompt ending in ":" just above the start of the line ("Persons on Account:").
+    const promptAbove = textItems.some(t => /:\s*$/.test(t.str) && t.baseline < s.y1 - P(2) && s.y1 - t.baseline <= P(20) &&
+      Math.abs(t.x - s.x1) <= P(20) && overlap(t.x, t.x + t.w, s.x1, s.x2) > 0);
     const onLine = x1 > s.x1 + P(3) && tagLen <= P(14);   // "$", "1a" — longer text on the line is weaker
+    if (short && !rightAdj && !leftAdj) { loose(s, x1, 'short'); continue; }
     // A heading beside the line ("Part I  Taxpayer Identification Number") is a section bar.
-    if (!onLine && isHeading(s.x1 - P(220), s.y1 - P(12), x1 + P(1), s.y1 + P(2))) continue;
+    if (!onLine && isHeading(s.x1 - P(220), s.y1 - P(12), x1 + P(1), s.y1 + P(2))) { loose(s, x1, 'heading'); continue; }
     // Full-width rules are section dividers unless something says "write here".
     const wide = s.x2 - s.x1 > W * 0.72;
-    lineFields.push({ type: 'text', x: x1, y: s.y1 - h, w: s.x2 - x1, h, labelled: wide ? onLine : (leftInk || belowInk), strong: onLine || (belowInk && !wide), seg: s });
+    const labelled = wide ? onLine : (leftInk || belowInk || rightAdj || promptAbove);
+    const base = { type: 'text', y: s.y1 - h, h, labelled, strong: !short && (onLine || (belowInk && !wide)), seg: s, rightLabel: short && rightAdj };
+    // One line with captions under it ("First   Middle   Last") is one blank per caption.
+    const caps = belowInk && !wide ? textItems.filter(t => t.baseline > s.y2 && t.baseline - t.size * 0.8 < s.y2 + P(6) &&
+      t.x >= x1 - P(4) && t.x + t.w <= s.x2 + P(4) && /\p{L}{2,}/u.test(t.str) && t.str.trim().length <= 24)
+      .sort((a, b) => a.x - b.x) : [];
+    const spread = caps.length >= 2 && caps.every((c, i) => i === 0 || c.x - (caps[i - 1].x + caps[i - 1].w) > P(20));
+    if (spread) {
+      const cuts = [x1, ...caps.slice(1).map(c => Math.round(c.x - P(3))), s.x2];
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        if (cuts[i + 1] - cuts[i] >= P(24)) lineFields.push({ ...base, x: cuts[i], w: cuts[i + 1] - cuts[i], labelled: true, caption: true });
+      }
+    } else {
+      lineFields.push({ ...base, x: x1, w: s.x2 - x1 });
+    }
   }
   // Unlabelled lines count when stacked with another writing line (address / comment lines).
   for (const f of lineFields) {
     const stacked = lineFields.some(o => o !== f &&
       Math.abs(o.seg.y1 - f.seg.y1) <= P(40) && Math.abs(o.seg.y1 - f.seg.y1) >= P(9) &&
       overlap(o.x, o.x + o.w, f.x, f.x + f.w) > 0.6 * Math.min(o.w, f.w));
-    if (f.labelled || stacked) fields.push({ type: 'text', x: f.x, y: f.y, w: f.w, h: f.h, weak: !(f.strong || stacked), src: 'line' });
+    if (f.labelled || stacked) fields.push({ type: 'text', x: f.x, y: f.y, w: f.w, h: f.h, weak: !(f.strong || stacked), src: 'line', rightLabel: f.rightLabel });
+    else looseLines.push({ type: 'text', x: f.x, y: f.y, w: f.w, h: f.h, src: 'loose-unlabelled' });
   }
 
   // "Name: ________ Date: ____" often arrives as one text run. Split it into its labels and
@@ -411,6 +467,34 @@ export function detectFormFields(img, { scale = 2, textItems = [], debug = null 
       fields.push({ type: 'checkbox', x: t.x + i * cw + (cw - side) / 2, y: t.y + (t.h - side) / 2, w: side, h: side });
     });
   }
+  // "[ ]" typed as a check box. Place it from the bracket strokes in the image (estimated
+  // character widths are only a starting point).
+  const strokeAt = (xa, xb, y1, y2) => {
+    const need = (y2 - y1) * 0.6, hits = [];
+    for (let x = Math.max(0, Math.round(xa)); x < Math.min(W, Math.round(xb)); x++) {
+      let c = 0;
+      for (let y = Math.max(0, Math.round(y1)); y < Math.min(H, Math.round(y2)); y++) c += textInk[y * W + x];
+      if (c >= need) hits.push(x);
+    }
+    return hits;
+  };
+  for (const t of textItems) {
+    const re = /\[(\s*)\]/g; let m;
+    while ((m = re.exec(t.str))) {
+      const offs = charOffsets(t.str, t.w);
+      const ci = [...t.str.slice(0, m.index)].length, cj = ci + 1 + [...m[1]].length;
+      const y1 = t.baseline - t.size * 0.75, y2 = t.baseline + t.size * 0.15;
+      const estL = t.x + offs[ci], estR = t.x + offs[cj + 1];
+      const left = strokeAt(estL - P(4), estL + P(4), y1, y2);
+      const right = strokeAt(estR - P(5), estR + P(3), y1, y2);
+      const lx = left.length ? left[0] : estL + P(0.5);
+      const rx = right.length ? right[right.length - 1] + 1 : estR - P(0.5);
+      const w = rx - lx;
+      if (w < P(3) || w > P(20)) continue;
+      const side = Math.max(w, P(7));
+      fields.push({ type: 'checkbox', x: lx + (w - side) / 2, y: y1 + (y2 - y1 - side) / 2, w: side, h: side, src: 'bracket' });
+    }
+  }
 
   // ── 7. De-dupe, name, sort in reading order ──
   // Weak evidence (a label with space beside it, a line with text somewhere to its left) only
@@ -427,14 +511,90 @@ export function detectFormFields(img, { scale = 2, textItems = [], debug = null 
     out.push(f);
   }
   out.sort((a, b) => (Math.abs(a.y - b.y) < P(6) ? a.x - b.x : a.y - b.y));
-  for (const f of out) {
+  const finish = f => {
     f.label = findLabel(f, labelItems, P);
     f.multiLine = f.type === 'text' && f.h >= P(30);
     f.x = Math.round(f.x); f.y = Math.round(f.y); f.w = Math.round(f.w); f.h = Math.round(f.h);
-    delete f.weak;
+    delete f.weak; delete f.rightLabel;
+    return f;
+  };
+  // Snap candidates: everything above, the weak evidence the page did not keep, every
+  // turned-down writing line, and each box as a whole.
+  const candidates = [];
+  const addCand = f => {
+    if (f.w < P(4) || f.h < P(4)) return;
+    if (candidates.some(o => o.type === f.type && iou(o, f) > 0.85)) return;
+    candidates.push(finish({ ...f, src: f.src || 'field' }));
+  };
+  fields.forEach(addCand);
+  looseLines.forEach(addCand);
+  for (const r of regions) if (r.w >= P(18) && r.h >= P(9) && r.h <= P(80)) addCand({ type: 'text', x: r.x, y: r.y, w: r.w, h: r.h, src: 'region' });
+  for (const f of out) {
+    finish(f);
     if (!debug) delete f.src;
   }
-  return out;
+  return { fields: out, candidates };
+}
+
+/** A name for a field drawn by hand at `rect` (image pixels), from the text around it. */
+export function labelForRect(rect, { textItems = [], scale = 2, type = 'text' } = {}) {
+  const items = (textItems || []).filter(t => t && t.str && t.size > 0 && t.w > 0)
+    .map(t => ({ ...t, y: t.baseline - t.size, h: t.size * 1.15 }));
+  return findLabel({ type, x: rect.x, y: rect.y, w: rect.w, h: rect.h }, items, pt => pt * scale);
+}
+
+/** Approximate x offset of each character of `str` laid out in width `w` (proportional, Times/Helvetica-like). */
+function charOffsets(str, w) {
+  const em = c => c === ' ' ? 0.25 : /[il.,:;'!|\[\]()]/.test(c) ? 0.3 : /[ftrj]/.test(c) ? 0.36 : /[mw]/.test(c) ? 0.75 :
+    /[MW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.68 : 0.5;
+  const ws = [...str].map(em);
+  const total = ws.reduce((a, b) => a + b, 0) || 1;
+  const offs = [0];
+  for (const x of ws) offs.push(offs[offs.length - 1] + x * w / total);
+  return offs;
+}
+
+/**
+ * The field to add where the user pointed at a blank the scan missed.
+ * @param {{candidates: Array}} analysis  from analyzeFormPage (image pixels)
+ * @param {number} x, y                    click, image pixels
+ * @param {object} o
+ * @param {number} o.scale                 image pixels per PDF point
+ * @param {Array}  [o.existing]            fields already on the page ({x,y,w,h}, image pixels)
+ * @param {Array}  [o.textItems]           as for detectFormFields — keeps a free-placed field off the text
+ * @param {number} [o.width]               page width in pixels
+ * @param {'auto'|'text'|'checkbox'} [o.type]
+ * @returns {{type, x, y, w, h, label, multiLine}}
+ */
+export function snapField(analysis, x, y, { scale = 2, existing = [], textItems = [], width = Infinity, type = 'auto' } = {}) {
+  const P = pt => pt * scale;
+  const free = c => !existing.some(e => iou(e, c) > 0.3 || contains(e, c));
+  const dist = c => Math.hypot(Math.max(c.x - x, 0, x - (c.x + c.w)), Math.max(c.y - y, 0, y - (c.y + c.h)));
+  const cands = (analysis?.candidates || []).filter(c => (type === 'auto' || c.type === type) && free(c));
+  // Inside a candidate (the smallest wins: a check box over the box around it), else the nearest
+  // one within reach — a click on the line itself or just under it still means that line.
+  let pick = cands.filter(c => dist(c) <= P(1.5)).sort((a, b) => a.w * a.h - b.w * b.h)[0];
+  if (!pick) pick = cands.filter(c => dist(c) <= P(7)).sort((a, b) => dist(a) - dist(b))[0];
+  if (pick) {
+    const { type: t, x: px, y: py, w, h, label, multiLine } = pick;
+    return { type: t, x: px, y: py, w, h, label: label || '', multiLine: !!multiLine };
+  }
+  if (type === 'checkbox') {
+    const s = Math.round(P(10));
+    return { type: 'checkbox', x: Math.round(x - s / 2), y: Math.round(y - s / 2), w: s, h: s, label: '', multiLine: false };
+  }
+  // Nothing there: a one-line field from the click to the next text on the row.
+  const h = Math.round(P(14)), top = Math.round(y - h * 0.6);
+  let x2 = Math.min(width - P(4), x + P(160));
+  let x1 = x - P(2);
+  for (const t of textItems || []) {
+    const ty1 = t.baseline - t.size, ty2 = t.baseline + t.size * 0.2;
+    if (ty2 < top || ty1 > top + h) continue;
+    if (t.x >= x && t.x < x2) x2 = t.x - P(2);
+    if (t.x < x && t.x + t.w > x1 && t.x + t.w <= x) x1 = t.x + t.w + P(2);
+  }
+  if (x2 - x1 < P(30)) x2 = x1 + P(30);
+  return { type: 'text', x: Math.round(x1), y: top, w: Math.round(x2 - x1), h, label: '', multiLine: false };
 }
 
 function horizontalSegments(mask, W, H, minLen, maxThick) {
@@ -511,7 +671,8 @@ function findLabel(f, items, P) {
     while (j < row.length - 1 && row[j + 1].x - (row[j].x + row[j].w) < gap && !/:\s*$/.test(row[j].str)) j++;
     return cleanLabel(row.slice(i, j + 1).map(t => t.str).join(' '));
   };
-  if (f.type === 'checkbox') {
+  if (f.type === 'checkbox' || f.rightLabel) {
+    growLeft = false;
     return pick(items.filter(t => t.x >= f.x + f.w - P(1) && t.x - (f.x + f.w) < P(40) &&
       Math.abs((t.y + t.h / 2) - cy) < Math.max(f.h, t.h) * 0.7)
       .map(t => ({ t, d: t.x - (f.x + f.w) })));

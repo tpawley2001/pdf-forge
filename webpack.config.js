@@ -2,6 +2,25 @@ const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
+// webpack inlines `import.meta.url` of ESM dependencies (e.g. @embedpdf/pdfium) as the
+// file:// URL of the build machine's checkout. Nothing uses it at runtime (the wasm URL is
+// passed explicitly), but it would put the builder's home path in the public download.
+class StripBuildPathPlugin {
+  apply(compiler) {
+    const { Compilation, sources } = compiler.webpack;
+    const root = 'file://' + __dirname.split(path.sep).join('/') + '/';
+    compiler.hooks.thisCompilation.tap('StripBuildPath', compilation => {
+      compilation.hooks.processAssets.tap({ name: 'StripBuildPath', stage: Compilation.PROCESS_ASSETS_STAGE_OPTIMIZE_TRANSFER }, assets => {
+        for (const name of Object.keys(assets)) {
+          if (!/\.(js|html)$/.test(name)) continue;
+          const src = assets[name].source().toString();
+          if (src.includes(root)) compilation.updateAsset(name, new sources.RawSource(src.split(root).join('file:///pdf-forge/')));
+        }
+      });
+    });
+  }
+}
+
 class CopyOcrAssetsPlugin {
   apply(compiler) {
     compiler.hooks.afterEmit.tap('CopyOcrAssetsPlugin', () => {
@@ -100,6 +119,7 @@ module.exports = {
       inject: 'body',
     }),
     new CopyOcrAssetsPlugin(),
+    new StripBuildPathPlugin(),
   ],
   devtool: 'source-map',
 };

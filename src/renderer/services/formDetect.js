@@ -2,7 +2,7 @@
  * Find the blanks on a flat (non-fillable) form page — see src/pdf/FormDetector.js.
  * Runs in a Web Worker; falls back to the UI thread if the worker can't start.
  */
-import { detectFormFields } from '../../pdf/FormDetector.js';
+import { analyzeFormPage } from '../../pdf/FormDetector.js';
 
 let worker = null;
 let workerBroken = false;
@@ -17,7 +17,7 @@ function getWorker() {
       const p = pending.get(e.data.id);
       if (!p) return;
       pending.delete(e.data.id);
-      if (e.data.error) p.reject(new Error(e.data.error)); else p.resolve(e.data.fields);
+      if (e.data.error) p.reject(new Error(e.data.error)); else p.resolve(e.data.result);
     };
     worker.onerror = (e) => {
       // Worker failed to load: finish what is queued on the UI thread from now on.
@@ -47,12 +47,12 @@ export function textItemsFor(textContent, viewport, Util) {
 
 /**
  * @param {HTMLCanvasElement} canvas  page rendered at `scale` px per point
- * @returns {Promise<Array>} fields in canvas pixels (see detectFormFields)
+ * @returns {Promise<{fields: Array, candidates: Array}>} in canvas pixels (see analyzeFormPage)
  */
 export function detectOnCanvas(canvas, { scale, textItems }) {
   const { width, height } = canvas;
   const img = canvas.getContext('2d').getImageData(0, 0, width, height);
-  const runHere = () => detectFormFields({ width, height, data: img.data }, { scale, textItems });
+  const runHere = () => analyzeFormPage({ width, height, data: img.data }, { scale, textItems });
   const w = getWorker();
   if (!w) return Promise.resolve().then(runHere);
   return new Promise((resolve, reject) => {
@@ -68,4 +68,10 @@ export function toPdfRect(f, viewport) {
   const [ax, ay] = viewport.convertToPdfPoint(f.x, f.y);
   const [bx, by] = viewport.convertToPdfPoint(f.x + f.w, f.y + f.h);
   return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+}
+
+/** PDF user-space rect → canvas-pixel rect {x, y, w, h}. */
+export function fromPdfRect(rect, viewport) {
+  const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(rect);
+  return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
 }
