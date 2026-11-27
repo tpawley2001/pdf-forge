@@ -8,8 +8,11 @@
  *           verified against GitHub's sha256 asset digest (or electron-builder's latest.yml
  *           sha512). No hash → no install.
  * install:  refuses while the open document has unsaved changes; otherwise starts the
- *           installer silently (it asks for admin rights) and quits; the installer
- *           restarts PDF Forge when done.
+ *           installer silently and quits once it is running; the installer restarts PDF
+ *           Forge when done. The installer is requireAdministrator, and a plain
+ *           CreateProcess (child_process.spawn) from a non-elevated app fails for those
+ *           (ERROR_ELEVATION_REQUIRED, electron-builder#1129) — so it is started through
+ *           ShellExecute "runas" (PowerShell Start-Process -Verb RunAs), which shows UAC.
  *
  * PDF_FORGE_UPDATE_API overrides the release URL (tests); http is allowed only then.
  */
@@ -27,7 +30,7 @@ const DEFAULT_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const API = process.env.PDF_FORGE_UPDATE_API || DEFAULT_API;
 const TEST_MODE = API !== DEFAULT_API;
 const ALLOWED_HOSTS = /^(api\.github\.com|github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|[a-z0-9-]+\.githubusercontent\.com)$/i;
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const CHECK_EVERY_MS = 60 * 60 * 1000;   // a new release shows up within the hour
 const UA = `PDF-Forge/${VERSION} (update check)`;
 
 /** "1.10.0" > "1.9.3"; pre-release tags ("1.5.0-beta") sort below the release. */
@@ -163,17 +166,50 @@ async function download(version) {
   }
 }
 
+/** PowerShell that starts `exe` elevated (UAC prompt) and exits 0 once it runs, 1 when refused. */
+function elevatedStartScript(exe, args) {
+  const q = v => `'${String(v).replace(/'/g, "''")}'`;
+  return [
+    '$ErrorActionPreference = "Stop"; $ProgressPreference = "SilentlyContinue"',
+    `try { Start-Process -FilePath ${q(exe)} -ArgumentList ${args.map(q).join(',')} -Verb RunAs | Out-Null; exit 0 }`,
+    'catch { [Console]::Out.WriteLine($_.Exception.Message); exit 1 }',
+  ].join('\n');
+}
+
+/** Start the installer with admin rights; resolves { ok } or { ok: false, error }. */
+function startElevated(exe, args) {
+  return new Promise(resolve => {
+    const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const encoded = Buffer.from(elevatedStartScript(exe, args), 'utf16le').toString('base64');
+    let out = '';
+    let child;
+    try {
+      child = spawn(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+        { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch (e) { return resolve({ ok: false, error: e.message }); }
+    child.stdout.on('data', d => { out += d; });
+    child.on('error', e => resolve({ ok: false, error: e.message }));
+    child.on('close', code => resolve(code === 0 ? { ok: true } : {
+      ok: false,
+      error: /cancel/i.test(out)
+        ? 'The update needs administrator permission — it was declined, so nothing was installed.'
+        : `Could not start the installer${out.trim() ? `: ${out.trim().split(/\r?\n/)[0]}` : ''}`,
+    }));
+  });
+}
+
 /**
  * @param {() => {modified: boolean}} getDocState
  * @param {() => void} quit
  */
-function install(getDocState, quit) {
+async function install(getDocState, quit) {
   if (!downloaded || !fs.existsSync(downloaded.path)) return { success: false, error: 'Download the update first' };
   if (getDocState().modified) return { success: false, error: 'Save your document (or close it) before installing the update.' };
   if (process.platform !== 'win32') return { success: false, error: `Installer saved to ${downloaded.path}` };
-  // /S = silent (UAC still asks for admin rights), --force-run = start PDF Forge again afterwards.
-  const child = spawn(downloaded.path, ['/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: false });
-  child.unref();
+  // /S = silent, --force-run = start PDF Forge again afterwards. Quit only once it is running
+  // (the installer also closes a PDF Forge that is still open).
+  const r = await startElevated(downloaded.path, ['/S', '--force-run']);
+  if (!r.ok) return { success: false, error: r.error };
   setTimeout(quit, 400);
   return { success: true };
 }
@@ -184,4 +220,4 @@ function registerUpdater({ getDocState, quit }) {
   ipcMain.handle('update:install', () => install(getDocState, quit));
 }
 
-module.exports = { registerUpdater, check, compareVersions, describeRelease };
+module.exports = { registerUpdater, check, compareVersions, describeRelease, elevatedStartScript, startElevated };

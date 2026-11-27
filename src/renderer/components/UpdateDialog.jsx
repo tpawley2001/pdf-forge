@@ -72,7 +72,7 @@ export default function UpdateDialog({ info, onClose }) {
             </div>
           )}
           {stage === 'installing' && (
-            <div style={{ background: 'var(--bg-input)', borderRadius: 6, padding: 12, fontSize: 12, marginBottom: 12 }}>Starting the installer…</div>
+            <div style={{ background: 'var(--bg-input)', borderRadius: 6, padding: 12, fontSize: 12, marginBottom: 12 }}>Starting the installer… click <b>Yes</b> when Windows asks for permission.</div>
           )}
           {error && (
             <div className="update-dialog__error" style={{ background: 'var(--danger)', color: '#fff', borderRadius: 6, padding: 12, fontSize: 12, marginBottom: 12 }}>
